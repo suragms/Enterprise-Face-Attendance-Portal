@@ -1,0 +1,132 @@
+# ============================================
+# HexaAttender Continuous Integration & Deployment Pipeline
+# ============================================
+
+name: Production Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # Job 1: Build and Validate Codebases
+  validate:
+    name: Codebase Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout codebase
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Python for Backend scans
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Execute Backend Syntax Validation
+        run: |
+          python backend/manage.py check
+
+      # Step 3: Setup Node for Frontend compilation checks
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Execute Frontend Production Build
+        working-directory: ./frontend
+        run: npm run build
+
+  # Job 2: Build and Package Docker Containers (Main branch only)
+  dockerize:
+    name: Docker Container Packaging
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Log in to GitHub Container Registry (GHCR) or Docker Hub
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build and push Backend Image
+      - name: Build and Push Backend Container
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build and push Frontend Image
+      - name: Build and Push Frontend Container
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 3: Continuous Deployment Execution (SSH Remote pull)
+  deploy:
+    name: Remote Deployment Execution
+    needs: dockerize
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH Remote Automated Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /var/www/hexaattender-ams
+            
+            # Pull latest packaged docker images
+            docker-compose pull
+            
+            # Restart orchestration with clean volumes
+            docker-compose up -d --remove-orphans
+            
+            # Run backend Django migrations inside the running backend container
+            docker-compose exec -T backend python manage.py migrate --noinput
+            
+            # Collect backend Django static assets inside the running backend container
+            docker-compose exec -T backend python manage.py collectstatic --noinput
+            
+            # Prune obsolete orphaned images
+            docker image prune -f
