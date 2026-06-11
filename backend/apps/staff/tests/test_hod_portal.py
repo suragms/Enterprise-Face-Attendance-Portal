@@ -169,3 +169,26 @@ def test_hod_reports_scoped_to_department(hod_user, department):
     response = client.get("/api/v1/reports/analytics/")
 
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_hod_student_creation_without_specifying_department(hod_user, department, course, semester):
+    client = APIClient()
+    client.force_authenticate(hod_user)
+
+    response = client.post(
+        "/api/v1/students/",
+        {
+            "login_email": "autodept@hexastack.test",
+            "login_password": "securepassword123",
+            "first_name": "Auto",
+            "last_name": "Dept",
+            "roll_no": "CS-999",
+            "course": str(course.id),
+            "semester": str(semester.id),
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.json()["department"] == department.name

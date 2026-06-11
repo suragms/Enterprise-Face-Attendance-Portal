@@ -409,6 +409,10 @@ export const AttendanceEngine: React.FC = () => {
       setScanComplete(true)
     } catch (e: any) {
       setSubmitError(e.message || "Face recognition detection failed.")
+      const data = e.data || {}
+      if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+      if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+      if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
     } finally {
       setIsScanning(false)
     }

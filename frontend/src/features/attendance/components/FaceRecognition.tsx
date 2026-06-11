@@ -237,6 +237,10 @@ export const FaceRecognition: React.FC = () => {
       fetchStudents() // Reload roster
     } catch (e: any) {
       setRegError(e.message || "Face registration failed.")
+      const data = e.data || {}
+      if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+      if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+      if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
     } finally {
       setRegIsProcessing(false)
     }
@@ -269,6 +273,10 @@ export const FaceRecognition: React.FC = () => {
         fetchStudents()
       } catch (err: any) {
         setRegError(err.message || "Connection failed.")
+        const data = err.data || {}
+        if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+        if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+        if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
       } finally {
         setRegIsProcessing(false)
       }
@@ -321,6 +329,10 @@ export const FaceRecognition: React.FC = () => {
       setLivenessDetails(data.liveness_details ?? null)
     } catch (e: any) {
       setVerifyError(e.message || "Verification failed.")
+      const data = e.data || {}
+      if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+      if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+      if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
     } finally {
       setVerifyIsProcessing(false)
     }
@@ -357,6 +369,10 @@ export const FaceRecognition: React.FC = () => {
         setLivenessDetails(data.liveness_details ?? null)
       } catch (err: any) {
         setVerifyError(err.message || "Verification connection failed.")
+        const data = err.data || {}
+        if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+        if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+        if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
       } finally {
         setVerifyIsProcessing(false)
       }
@@ -410,6 +426,10 @@ export const FaceRecognition: React.FC = () => {
       setLivenessDetails(data.liveness_details ?? null)
     } catch (e: any) {
       setScanError(e.message || "Detection failed.")
+      const data = e.data || {}
+      if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+      if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+      if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
     } finally {
       setIsScanning(false)
     }
@@ -451,6 +471,10 @@ export const FaceRecognition: React.FC = () => {
       setLivenessDetails(data.liveness_details ?? null)
     } catch (e: any) {
       setAnalyzeError(e.message || "Face analysis failed.")
+      const data = e.data || {}
+      if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+      if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+      if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
     } finally {
       setAnalyzeIsProcessing(false)
     }
@@ -485,6 +509,10 @@ export const FaceRecognition: React.FC = () => {
         setLivenessDetails(data.liveness_details ?? null)
       } catch (err: any) {
         setAnalyzeError(err.message || "Connection failed.")
+        const data = err.data || {}
+        if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+        if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+        if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
       } finally {
         setAnalyzeIsProcessing(false)
       }

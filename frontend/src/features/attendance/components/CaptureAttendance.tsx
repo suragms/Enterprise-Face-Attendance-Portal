@@ -258,6 +258,10 @@ export const CaptureAttendance: React.FC = () => {
       setLivenessDetails(data.liveness_details ?? null)
     } catch (e: any) {
       setScanError(e.message || "Webcam detection processing failed.")
+      const data = e.data || {}
+      if (data.liveness_score !== undefined) setLivenessScore(data.liveness_score)
+      if (data.liveness_checks !== undefined) setLivenessChecks(data.liveness_checks)
+      if (data.liveness_details !== undefined) setLivenessDetails(data.liveness_details)
     } finally {
       setIsScanning(false)
     }

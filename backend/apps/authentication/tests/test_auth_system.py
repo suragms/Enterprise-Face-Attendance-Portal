@@ -191,3 +191,65 @@ def test_legacy_token_login_with_email(auth_client):
     )
     assert response.status_code == 200
     assert "hexaattender_access" in response.cookies
+
+
+@pytest.mark.django_db
+def test_student_login_with_face_verification(monkeypatch, student_instance, organization, branch):
+    from apps.face_recognition.models import FaceEnrollment
+    from apps.face_recognition.services import FaceRecognitionService
+    
+    FaceEnrollment.objects.create(
+        organization=organization,
+        user=student_instance.user,
+        student=student_instance,
+        subject_type=FaceEnrollment.SubjectType.STUDENT,
+        encrypted_embedding=[0.12, 0.34],
+        pose_embeddings={
+            "FRONT": [0.12, 0.34],
+            "LEFT": [0.56, 0.78],
+        },
+        captured_poses=["FRONT", "LEFT"],
+        is_active=True
+    )
+    
+    monkeypatch.setattr(FaceRecognitionService, "verify_liveness", lambda self, image: {
+        "success": True,
+        "liveness": True,
+        "score": 95,
+        "checks": {"photo_attack_prevented": True, "screen_attack_prevented": True},
+        "details": {}
+    })
+    monkeypatch.setattr(FaceRecognitionService, "encode_face", lambda self, image: {
+        "success": True,
+        "encoding": [0.56, 0.78],
+        "face_count": 1,
+        "message": "ok"
+    })
+    
+    client = APIClient()
+    
+    init_res = client.post(
+        "/api/v1/auth/initiate-login/",
+        {"mode": "password", "email": student_instance.user.email, "password": "securepassword123"},
+        format="json"
+    )
+    assert init_res.status_code == 200
+    assert init_res.data["face_required"] is True
+    challenge_id = init_res.data["challenge_id"]
+    
+    verify_res = client.post(
+        "/api/v1/auth/verify-face/",
+        {"challenge_id": challenge_id, "image": "data:image/png;base64,ZmFrZQ=="},
+        format="json"
+    )
+    assert verify_res.status_code == 200
+    assert verify_res.data["verified"] is True
+    
+    complete_res = client.post(
+        "/api/v1/auth/complete-login/",
+        {"challenge_id": challenge_id},
+        format="json"
+    )
+    assert complete_res.status_code == 200
+    assert "hexaattender_access" in complete_res.cookies
+

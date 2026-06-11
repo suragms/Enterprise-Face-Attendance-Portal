@@ -171,29 +171,31 @@ export const Login: React.FC = () => {
       }
     } catch (err: any) {
       setCameraState("failed")
-      const errMsg = err.message || "Face verification failed."
-      const backendPayload = (() => {
+      const backendPayload = err.data || (() => {
         try {
-          return typeof errMsg === "string" ? JSON.parse(errMsg) : null
+          return typeof err.message === "string" ? JSON.parse(err.message) : null
         } catch {
           return null
         }
       })()
-      if (backendPayload?.attempts !== undefined) {
-        setAttemptsUsed(backendPayload.attempts)
-      }
+
+      const detailMsg = backendPayload?.detail || backendPayload?.error || err.message || "Face verification failed."
       
+      const attempts = backendPayload?.attempts ?? (err.attempts ?? attemptsUsed + 1)
+      setAttemptsUsed(Math.min(5, attempts))
+      
+      const lockSeconds = backendPayload?.lock_seconds ?? err.lock_seconds
+      const liveness = backendPayload?.liveness ?? err.liveness
+
       // Look for lockout response code or content
-      if (errMsg.includes("Too many failed attempts") || errMsg.includes("temporarily disabled") || backendPayload?.lock_seconds) {
+      if (detailMsg.includes("Too many failed attempts") || detailMsg.includes("temporarily disabled") || lockSeconds) {
         setLockoutTime(3600) // 1 hour lockout countdown
         setError("Attempt 5/5 reached. Face verification is locked for 1 hour.")
-      } else if (err.liveness) {
+      } else if (liveness) {
         setError("Liveness check failed (anti-spoofing alert). Please ensure you are front-facing in a well-lit environment.")
-        setLivenessResult(err.liveness)
+        setLivenessResult(liveness)
       } else {
-        const nextAttempt = Math.min(5, (backendPayload?.attempts ?? attemptsUsed + 1))
-        setAttemptsUsed(nextAttempt)
-        setError(`${errMsg} Attempt ${nextAttempt}/5.`)
+        setError(`${detailMsg} Attempt ${Math.min(5, attempts)}/5.`)
       }
     }
   }

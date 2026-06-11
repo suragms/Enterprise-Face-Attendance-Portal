@@ -391,7 +391,11 @@ class InitiateLoginView(APIView):
                 return Response({"detail": probe.get("message", "Face encoding failed.")}, status=status.HTTP_400_BAD_REQUEST)
             best = None
             for enrollment in FaceEnrollment.objects.filter(organization_id=organization_id, is_active=True).select_related("user", "organization"):
-                match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
+                pose_set = enrollment.pose_embeddings or {}
+                if pose_set:
+                    match = self.face_service.verify_against_pose_set(pose_set, probe["encoding"], enrollment.confidence_threshold)
+                else:
+                    match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
                 if match["match"] and (best is None or match["confidence"] > best[1]["confidence"]):
                     best = (enrollment, match)
             if not best:
@@ -487,13 +491,18 @@ class VerifyFaceView(APIView):
                     "attempts": attempts,
                     "attempts_remaining": max(0, 5 - attempts),
                     "lock_seconds": 3600 if attempts >= 5 else 0,
+                    "liveness": liveness,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         probe = self.face_service.encode_face(image_data)
         if not probe.get("success"):
             return Response({"detail": probe.get("message", "Face encoding failed.")}, status=status.HTTP_400_BAD_REQUEST)
-        match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
+        pose_set = enrollment.pose_embeddings or {}
+        if pose_set:
+            match = self.face_service.verify_against_pose_set(pose_set, probe["encoding"], enrollment.confidence_threshold)
+        else:
+            match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
         if not match.get("match"):
             attempts = cache.get(attempts_key, 0) + 1
             cache.set(attempts_key, attempts, timeout=3600)

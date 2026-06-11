@@ -78,6 +78,14 @@ class FaceRegisterView(APIView):
         self.face_service = FaceRecognitionService()
 
     def post(self, request):
+        if request.user.is_authenticated and not getattr(request.user, "active_organization", None):
+            membership = request.user.memberships.filter(is_active=True).select_related("organization").first()
+            if membership:
+                request.user.active_organization = membership.organization
+                request.user.active_branch = membership.branch
+                request.user.role = membership.role
+                request.user.save(update_fields=["active_organization", "active_branch", "role"])
+
         user_id = request.data.get("user_id")
         roll_no = request.data.get("roll_no")
         staff_code = request.data.get("staff_code")
@@ -126,7 +134,26 @@ class FaceRegisterView(APIView):
             )
             if not user:
                 return Response({"error": "User not found in active organization."}, status=status.HTTP_404_NOT_FOUND)
-            subject_type = subject_type or FaceEnrollment.SubjectType.USER
+
+            try:
+                student_profile = user.student_profile
+                if student_profile and student_profile.is_active:
+                    student = student_profile
+                    subject_type = FaceEnrollment.SubjectType.STUDENT
+            except Student.DoesNotExist:
+                pass
+
+            if not student:
+                try:
+                    faculty_profile = user.faculty_profile
+                    if faculty_profile and faculty_profile.is_active:
+                        faculty = faculty_profile
+                        subject_type = FaceEnrollment.SubjectType.FACULTY
+                except Faculty.DoesNotExist:
+                    pass
+
+            if not subject_type:
+                subject_type = FaceEnrollment.SubjectType.USER
         liveness_probe = image_data or (pose_images or {}).get("FRONT")
         liveness = self.face_service.verify_liveness(liveness_probe)
         if not liveness.get("success") or not liveness.get("liveness"):
@@ -213,6 +240,14 @@ class FaceVerifyView(APIView):
         self.face_service = FaceRecognitionService()
 
     def post(self, request):
+        if request.user.is_authenticated and not getattr(request.user, "active_organization", None):
+            membership = request.user.memberships.filter(is_active=True).select_related("organization").first()
+            if membership:
+                request.user.active_organization = membership.organization
+                request.user.active_branch = membership.branch
+                request.user.role = membership.role
+                request.user.save(update_fields=["active_organization", "active_branch", "role"])
+
         image_data = request.data.get("image")
         if not image_data:
             return Response({"error": "'image' is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -309,7 +344,11 @@ class FaceLoginView(APIView):
         
         best = None
         for enrollment in FaceEnrollment.objects.filter(organization_id=organization_id, is_active=True).select_related("user", "organization"):
-            match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
+            pose_set = enrollment.pose_embeddings or {}
+            if pose_set:
+                match = self.face_service.verify_against_pose_set(pose_set, probe["encoding"], enrollment.confidence_threshold)
+            else:
+                match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
             if match["match"] and (best is None or match["confidence"] > best[1]["confidence"]):
                 best = (enrollment, match)
         

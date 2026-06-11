@@ -117,14 +117,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const verifyFaceForChallenge = async (challengeId: string, image: string) => {
-    await apiFetch("/auth/verify-face/", {
-      method: "POST",
-      body: {
-        challenge_id: challengeId,
-        image,
-        device: getDeviceFingerprint(),
-      },
-    })
+    try {
+      await apiFetch("/auth/verify-face/", {
+        method: "POST",
+        body: {
+          challenge_id: challengeId,
+          image,
+          device: getDeviceFingerprint(),
+        },
+      })
+    } catch (err: any) {
+      const newErr = new Error(err.message) as any
+      newErr.status = err.status
+      newErr.data = err.data
+      throw newErr
+    }
   }
 
   const completeLogin = async (challengeId: string) => {

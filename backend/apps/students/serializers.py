@@ -53,6 +53,15 @@ class StudentSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         organization = getattr(getattr(request, "user", None), "active_organization", None)
 
+        if organization and not mutable.get("department"):
+            from apps.core.permissions import normalize_role
+            from apps.core.hod_scoping import is_hod_user, resolve_hod_department
+            user = getattr(request, "user", None)
+            if is_hod_user(user):
+                hod_dept = resolve_hod_department(user)
+                if hod_dept:
+                    mutable["department"] = str(hod_dept.id)
+
         full_name = mutable.pop("name", "")
         if full_name and not mutable.get("first_name"):
             parts = str(full_name).strip().split(" ", 1)

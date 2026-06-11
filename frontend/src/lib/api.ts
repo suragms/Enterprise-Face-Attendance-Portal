@@ -103,7 +103,10 @@ export const apiFetch = async <T = any>(endpoint: string, options: ApiFetchOptio
     const message = typeof data === "object" && data !== null
       ? (data.detail || data.error || JSON.stringify(data))
       : response.statusText
-    throw new Error(message || `Request failed with status ${response.status}`)
+    const error = new Error(message || `Request failed with status ${response.status}`) as any
+    error.status = response.status
+    error.data = data
+    throw error
   }
 
   if (data && typeof data === "object" && "csrfToken" in data) {
