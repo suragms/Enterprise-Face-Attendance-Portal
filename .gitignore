@@ -37,3 +37,7 @@ htmlcov/
 *.sln
 *.sw?
 .gemini/
+
+# Media Uploads
+backend/media/
+media/
