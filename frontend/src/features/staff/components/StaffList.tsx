@@ -143,7 +143,7 @@ export const StaffList: React.FC = () => {
       
       setAvailableSubjects(mappedSubjects)
 
-      if (registrationContext?.departments?.length) {
+      if (registrationContext && registrationContext.departments) {
         setDepartments(registrationContext.departments)
         setDepartmentLocked(Boolean(registrationContext.department_locked))
         setCanCreateFaculty(Boolean(registrationContext.can_create))
@@ -1029,9 +1029,13 @@ export const StaffList: React.FC = () => {
                       disabled={!isAdmin}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white disabled:opacity-70"
                     >
-                      <option value="Computer Science">Computer Science</option>
-                      <option value="Software Engineering">Software Engineering</option>
-                      <option value="Electrical Engineering">Electrical Engineering</option>
+                      {departments.length === 0 ? (
+                        <option value="" disabled>No departments available</option>
+                      ) : (
+                        departments.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))
+                      )}
                     </select>
                   </div>
                   <div>
@@ -1163,9 +1167,13 @@ export const StaffList: React.FC = () => {
                     disabled={departmentLocked}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white disabled:opacity-70"
                   >
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
+                    {departments.length === 0 ? (
+                      <option value="" disabled>No departments available</option>
+                    ) : (
+                      departments.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div>

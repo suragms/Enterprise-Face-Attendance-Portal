@@ -29,6 +29,9 @@ class Branch(OrganizationScopedModel):
     code = models.CharField(max_length=40)
     address = models.TextField(blank=True)
     timezone = models.CharField(max_length=64, default="Asia/Kolkata")
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    geofence_radius = models.FloatField(default=100.0)
     is_active = models.BooleanField(default=True, db_index=True)
 
     class Meta(OrganizationScopedModel.Meta):

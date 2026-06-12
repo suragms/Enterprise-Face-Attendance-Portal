@@ -139,12 +139,12 @@ class FacultyService:
         if isinstance(department_value, Department):
             return department_value
 
-        department_str = str(department_value)
+        department_str = str(department_value).strip()
         queryset = Department.objects.filter(organization=organization, is_active=True, is_deleted=False)
         if len(department_str) == 36 and department_str.count("-") == 4:
             department = queryset.filter(id=department_str).first()
         else:
-            department = queryset.filter(name=department_str).first() or queryset.filter(code=department_str).first()
+            department = queryset.filter(name__iexact=department_str).first() or queryset.filter(code__iexact=department_str).first()
 
         if not department:
             raise FacultyServiceError("No active department matches this value.", field="department")

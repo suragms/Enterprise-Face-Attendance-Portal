@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import { apiFetch } from "../../../lib/api"
 import { AdminCrudPage } from "./AdminCrudPage"
 import { isAdminRole } from "../../../lib/roles"
@@ -97,17 +98,62 @@ export const SemestersManagement: React.FC = () => {
         { key: "is_active", label: "Active", render: (row) => (row.is_active ? "Yes" : "No") },
       ]}
       formFields={
-        <form onSubmit={submit} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-3">
-          <select className="rounded border px-3 py-2 text-sm" value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} required>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>{course.label}</option>
-            ))}
-          </select>
-          <select className="rounded border px-3 py-2 text-sm" value={form.academic_year} onChange={(e) => setForm({ ...form, academic_year: e.target.value })} required>
-            {years.map((year) => (
-              <option key={year.id} value={year.id}>{year.label}</option>
-            ))}
-          </select>
+        <div className="space-y-3">
+          {(courses.length === 0 || years.length === 0) && (
+            <div className="p-4 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-sm font-semibold leading-normal">
+              {courses.length === 0 && (
+                <p>
+                  No courses found in this organization. Please create a course in the{" "}
+                  <Link to="/admin/courses" className="underline text-amber-900 hover:text-amber-950 font-bold">
+                    Courses
+                  </Link>{" "}
+                  tab first.
+                </p>
+              )}
+              {years.length === 0 && (
+                <p>
+                  No academic years found. Please ensure academic years are configured in the backend first.
+                </p>
+              )}
+            </div>
+          )}
+          <form onSubmit={submit} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-3">
+            <select
+              className="rounded border px-3 py-2 text-sm disabled:bg-slate-100"
+              value={form.course}
+              onChange={(e) => setForm({ ...form, course: e.target.value })}
+              required
+              disabled={courses.length === 0}
+            >
+              {courses.length === 0 ? (
+                <option value="" disabled>No courses available (Create a course first)</option>
+              ) : (
+                <>
+                  <option value="" disabled>-- Select Course --</option>
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id}>{course.label}</option>
+                  ))}
+                </>
+              )}
+            </select>
+            <select
+              className="rounded border px-3 py-2 text-sm disabled:bg-slate-100"
+              value={form.academic_year}
+              onChange={(e) => setForm({ ...form, academic_year: e.target.value })}
+              required
+              disabled={years.length === 0}
+            >
+              {years.length === 0 ? (
+                <option value="" disabled>No academic years available (Configure academic years first)</option>
+              ) : (
+                <>
+                  <option value="" disabled>-- Select Academic Year --</option>
+                  {years.map((year) => (
+                    <option key={year.id} value={year.id}>{year.label}</option>
+                  ))}
+                </>
+              )}
+            </select>
           <input type="number" min={1} className="rounded border px-3 py-2 text-sm" value={form.number} onChange={(e) => setForm({ ...form, number: Number(e.target.value) })} required />
           <input type="date" className="rounded border px-3 py-2 text-sm" value={form.starts_on} onChange={(e) => setForm({ ...form, starts_on: e.target.value })} required />
           <input type="date" className="rounded border px-3 py-2 text-sm" value={form.ends_on} onChange={(e) => setForm({ ...form, ends_on: e.target.value })} required />
@@ -118,7 +164,8 @@ export const SemestersManagement: React.FC = () => {
           <button type="submit" className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white md:col-span-3">
             {editing ? "Update Semester" : "Create Semester"}
           </button>
-        </form>
+          </form>
+        </div>
       }
     />
   )

@@ -25,6 +25,12 @@ export const StudentProfile: React.FC = () => {
     }
   }, [stream])
 
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream
+    }
+  }, [stream])
+
   const startCamera = async () => {
     setCameraError(null)
     try {

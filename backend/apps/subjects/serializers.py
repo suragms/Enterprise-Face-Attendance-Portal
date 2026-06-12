@@ -40,20 +40,22 @@ class SubjectSerializer(serializers.ModelSerializer):
 
         department_value = mutable.get("department")
         if organization and department_value and not self._looks_like_uuid(department_value):
+            dept_val_str = str(department_value).strip()
             department = Department.objects.filter(
                 organization=organization,
                 is_active=True,
-            ).filter(Q(name=department_value) | Q(code=department_value)).first()
+            ).filter(Q(name__iexact=dept_val_str) | Q(code__iexact=dept_val_str)).first()
             if not department:
                 raise serializers.ValidationError({"department": "No active department matches this value."})
             mutable["department"] = str(department.id)
 
         course_value = mutable.get("course")
         if organization and course_value and not self._looks_like_uuid(course_value):
+            course_val_str = str(course_value).strip()
             course = Course.objects.filter(
                 organization=organization,
                 is_active=True,
-            ).filter(Q(name=course_value) | Q(code=course_value)).first()
+            ).filter(Q(name__iexact=course_val_str) | Q(code__iexact=course_val_str)).first()
             if not course:
                 raise serializers.ValidationError({"course": "No active course matches this value."})
             mutable["course"] = str(course.id)

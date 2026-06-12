@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { Navigate } from "react-router-dom"
+import { Navigate, Link } from "react-router-dom"
 import { apiFetch } from "../../../lib/api"
 import { isSuperAdminRole } from "../../../lib/roles"
 import { useAuth } from "../../../context/AuthContext"
@@ -66,6 +66,10 @@ export const HodManagement: React.FC = () => {
 
   const createHod = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!form.department_id) {
+      setError("Please select a department (create one in Departments if none exist).")
+      return
+    }
     try {
       await apiFetch("/auth/accounts/hod/", { method: "POST", body: form })
       setForm({
@@ -95,6 +99,16 @@ export const HodManagement: React.FC = () => {
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-slate-900">HOD Management</h2>
+      {departments.length === 0 && (
+        <div className="rounded-xl border border-amber-250 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+          No departments found in this organization. You must create a department under the{" "}
+          <Link to="/admin/departments" className="underline text-amber-900 hover:text-amber-950 font-bold">
+            Departments
+          </Link>{" "}
+          tab before creating an HOD account.
+        </div>
+      )}
+
       <form onSubmit={createHod} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-3">
         <input className="rounded border px-3 py-2 text-sm" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
         <input className="rounded border px-3 py-2 text-sm" placeholder="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
@@ -103,17 +117,24 @@ export const HodManagement: React.FC = () => {
         <input className="rounded border px-3 py-2 text-sm" placeholder="Last name" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
         <input className="rounded border px-3 py-2 text-sm" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
         <select
-          className="rounded border px-3 py-2 text-sm md:col-span-2"
+          className="rounded border px-3 py-2 text-sm md:col-span-2 disabled:bg-slate-100"
           value={form.department_id}
           onChange={(e) => setForm({ ...form, department_id: e.target.value })}
           required
+          disabled={departments.length === 0}
         >
-          <option value="">Select department</option>
-          {departments.map((department) => (
-            <option key={department.id} value={department.id}>
-              {department.name}
-            </option>
-          ))}
+          {departments.length === 0 ? (
+            <option value="" disabled>No departments available (Create a department first)</option>
+          ) : (
+            <>
+              <option value="" disabled>-- Select Department --</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </>
+          )}
         </select>
         <button type="submit" className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white md:col-span-3">Create HOD Account</button>
       </form>

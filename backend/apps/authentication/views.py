@@ -49,7 +49,7 @@ from apps.core.faculty_scoping import (
 )
 from apps.core.student_scoping import ATTENDANCE_THRESHOLD, resolve_student_profile
 from apps.core.hod_scoping import resolve_hod_department
-from apps.organizations.models import AuditLog, Department, OrganizationMembership
+from apps.organizations.models import AuditLog, Department, OrganizationMembership, Organization
 from apps.staff.models import Faculty
 from apps.materials.models import StudyMaterial
 from apps.subjects.models import Subject
@@ -80,10 +80,18 @@ def _refresh_for_user(user):
 
 def _issue_auth_response(user, request, login_method="password"):
     from django.db.utils import OperationalError
+    from apps.organizations.models import Organization
 
     if user.first_login_at is None:
         user.first_login_at = timezone.now()
         user.save(update_fields=["first_login_at"])
+
+    if user.is_super_admin and not user.active_organization_id:
+        first_org = Organization.objects.first()
+        if first_org:
+            user.active_organization = first_org
+            user.save(update_fields=["active_organization"])
+
     _rotate_session_version(user)
     refresh = _refresh_for_user(user)
     try:
@@ -217,7 +225,14 @@ class UserDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
-        return self.request.user
+        user = self.request.user
+        if user.is_super_admin and not user.active_organization_id:
+            from apps.organizations.models import Organization
+            first_org = Organization.objects.first()
+            if first_org:
+                user.active_organization = first_org
+                user.save(update_fields=["active_organization"])
+        return user
 
 
 class SwitchOrganizationView(APIView):
@@ -237,7 +252,20 @@ class SwitchOrganizationView(APIView):
             request.user.active_branch = membership.branch
             request.user.role = membership.role
             request.user.save(update_fields=["active_organization", "active_branch", "role"])
-        return Response(UserSerializer(request.user).data)
+        elif request.user.is_super_admin and organization_id:
+            try:
+                org = Organization.objects.get(id=organization_id)
+                request.user.active_organization = org
+                request.user.active_branch = None
+                request.user.save(update_fields=["active_organization", "active_branch"])
+            except Organization.DoesNotExist:
+                return Response({"detail": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Re-issue JWT cookies so the new active organization is encoded in the access token payload
+        refresh = _refresh_for_user(request.user)
+        response = Response(UserSerializer(request.user).data)
+        set_auth_cookies(response, refresh.access_token, refresh)
+        return response
 
 
 class LogoutView(APIView):

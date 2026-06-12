@@ -26,6 +26,32 @@ class BranchSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ("id", "organization", "created_at", "updated_at", "created_by", "updated_by", "is_deleted", "deleted_at")
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if not request or not request.user:
+            return attrs
+
+        if "code" in attrs:
+            attrs["code"] = attrs["code"].strip().upper()
+
+        instance = self.instance
+        code = attrs.get("code", getattr(instance, "code", None))
+        organization = getattr(request.user, "active_organization", None)
+        if instance:
+            organization = instance.organization
+
+        if not organization:
+            raise serializers.ValidationError({"organization": "Active organization is not set."})
+
+        qs = Branch.objects.filter(organization=organization, code=code, is_deleted=False)
+        if instance:
+            qs = qs.exclude(id=instance.id)
+
+        if qs.exists():
+            raise serializers.ValidationError({"code": f"A branch with code '{code}' already exists in this organization."})
+
+        return attrs
+
 
 class DepartmentSerializer(serializers.ModelSerializer):
     hod_name = serializers.SerializerMethodField(read_only=True)

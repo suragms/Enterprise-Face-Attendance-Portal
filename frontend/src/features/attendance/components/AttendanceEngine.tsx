@@ -347,6 +347,12 @@ export const AttendanceEngine: React.FC = () => {
   }, [stream])
 
   useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream
+    }
+  }, [stream])
+
+  useEffect(() => {
     stopCamera()
     setScanComplete(false)
     setAutoResults([])

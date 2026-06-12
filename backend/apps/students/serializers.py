@@ -80,8 +80,9 @@ class StudentSerializer(serializers.ModelSerializer):
 
         department_value = mutable.get("department")
         if organization and department_value and not self._looks_like_uuid(str(department_value)):
+            dept_val_str = str(department_value).strip()
             department = Department.objects.filter(organization=organization, is_active=True).filter(
-                Q(name=department_value) | Q(code=department_value)
+                Q(name__iexact=dept_val_str) | Q(code__iexact=dept_val_str)
             ).first()
             if not department:
                 raise serializers.ValidationError({"department": "No active department matches this value."})

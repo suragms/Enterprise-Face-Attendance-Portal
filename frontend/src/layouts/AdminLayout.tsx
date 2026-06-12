@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react"
+import React, { useMemo, useState, useEffect } from "react"
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
 import { isSuperAdminRole } from "../lib/roles"
+import { apiFetch } from "../lib/api"
 import { 
   LayoutDashboard, 
   Users, 
@@ -23,6 +24,7 @@ import {
   ClipboardList,
   Building2,
   GitBranch,
+  Cpu,
 } from "lucide-react"
 
 export const AdminLayout: React.FC = () => {
@@ -32,6 +34,17 @@ export const AdminLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const isSuperAdmin = isSuperAdminRole(user?.role)
+
+  const [organizations, setOrganizations] = useState<any[]>([])
+  useEffect(() => {
+    if (isSuperAdmin) {
+      apiFetch("/organizations/?page_size=200")
+        .then(data => {
+          setOrganizations(data.results || data || [])
+        })
+        .catch(err => console.error("Failed to load organizations for switcher:", err))
+    }
+  }, [isSuperAdmin])
 
   const navItems = useMemo(() => {
     if (isSuperAdmin) {
@@ -53,6 +66,7 @@ export const AdminLayout: React.FC = () => {
         { name: "Notifications", path: "/admin/notifications", icon: Bell },
         { name: "Audit Logs", path: "/admin/audit-logs", icon: FileSearch },
         { name: "Face Recognition", path: "/admin/face-recognition", icon: Fingerprint },
+        { name: "Device Sync Simulator", path: "/admin/device-sync", icon: Cpu },
       ]
     }
 
@@ -69,6 +83,7 @@ export const AdminLayout: React.FC = () => {
       { name: "Reports", path: "/admin/reports", icon: FileBarChart2 },
       { name: "Analytics", path: "/admin/analytics", icon: TrendingUp },
       { name: "Notifications", path: "/admin/notifications", icon: Bell },
+      { name: "Device Sync Simulator", path: "/admin/device-sync", icon: Cpu },
     ]
   }, [isSuperAdmin])
 
@@ -246,7 +261,34 @@ export const AdminLayout: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            {isSuperAdmin && organizations.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Tenant:</span>
+                <select
+                  value={user?.activeOrganization || ""}
+                  onChange={async (e) => {
+                    const orgId = e.target.value
+                    if (!orgId) return
+                    try {
+                      await apiFetch("/auth/switch-organization/", {
+                        method: "POST",
+                        body: { organization_id: orgId }
+                      })
+                      window.location.reload()
+                    } catch (err) {
+                      console.error("Failed to switch organization:", err)
+                    }
+                  }}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                >
+                  <option value="" disabled>-- Select Organization --</option>
+                  {organizations.map(org => (
+                    <option key={org.id} value={org.id}>{org.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <span className="text-xs px-2.5 py-1 bg-emerald-50 border border-emerald-250 text-emerald-700 font-bold rounded-full">
               {sessionLabel}
             </span>

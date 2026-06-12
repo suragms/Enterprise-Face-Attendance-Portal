@@ -344,7 +344,13 @@ export const Login: React.FC = () => {
 
             {/* Video Feed */}
             <video
-              ref={videoRef}
+              ref={(el) => {
+                videoRef.current = el
+                if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                  el.srcObject = streamRef.current
+                  el.play().catch(err => console.error("Error playing video in login:", err))
+                }
+              }}
               className={`w-full h-full object-cover rounded-full scale-x-[-1] ${
                 cameraState === "scanning" ? "brightness-50" : ""
               }`}

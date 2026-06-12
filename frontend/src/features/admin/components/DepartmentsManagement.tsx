@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import { apiFetch } from "../../../lib/api"
 import { useAuth } from "../../../context/AuthContext"
 import { isSuperAdminRole } from "../../../lib/roles"
@@ -57,6 +58,7 @@ export const DepartmentsManagement: React.FC = () => {
   const validateForm = () => {
     if (!form.name.trim()) return "Department name is required."
     if (form.code.trim().length < 2) return "Department code must be at least 2 characters."
+    if (!form.branch) return "Please select a branch (create one in Branches if none exist)."
     return ""
   }
 
@@ -123,11 +125,37 @@ export const DepartmentsManagement: React.FC = () => {
         </div>
       ) : null}
       <h2 className="text-xl font-bold text-slate-900">Departments</h2>
+      {isSuperAdmin && branches.length === 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+          No branches found in this organization. You must create a branch under the{" "}
+          <Link to="/admin/branches" className="underline text-amber-900 hover:text-amber-950 font-bold">
+            Branches
+          </Link>{" "}
+          tab before creating a department.
+        </div>
+      )}
       <form onSubmit={submitDepartment} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-4">
         <input disabled={!isSuperAdmin} className="rounded border px-3 py-2 text-sm disabled:bg-slate-100" placeholder="Department name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <input disabled={!isSuperAdmin} className="rounded border px-3 py-2 text-sm disabled:bg-slate-100" placeholder="Code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required />
-        <select disabled={!isSuperAdmin} className="rounded border px-3 py-2 text-sm disabled:bg-slate-100" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} required>
-          {branches.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
+        <select
+          disabled={!isSuperAdmin || branches.length === 0}
+          className="rounded border px-3 py-2 text-sm disabled:bg-slate-100"
+          value={form.branch}
+          onChange={(e) => setForm({ ...form, branch: e.target.value })}
+          required
+        >
+          {branches.length === 0 ? (
+            <option value="" disabled>No branches available (Create a branch first)</option>
+          ) : (
+            <>
+              <option value="" disabled>-- Assign Branch --</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name} ({b.code})
+                </option>
+              ))}
+            </>
+          )}
         </select>
         <select disabled={!isSuperAdmin} className="rounded border px-3 py-2 text-sm disabled:bg-slate-100" value={form.hod} onChange={(e) => setForm({ ...form, hod: e.target.value })}>
           <option value="">Assign HOD (Optional)</option>

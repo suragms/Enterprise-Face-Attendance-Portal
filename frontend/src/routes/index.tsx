@@ -39,6 +39,7 @@ const HodManagement = React.lazy(() => import("../features/admin/components/HodM
 const AuditLogsView = React.lazy(() => import("../features/admin/components/AuditLogsView").then(module => ({ default: module.AuditLogsView })))
 const OrganizationsManagement = React.lazy(() => import("../features/admin/components/OrganizationsManagement").then(module => ({ default: module.OrganizationsManagement })))
 const BranchesManagement = React.lazy(() => import("../features/admin/components/BranchesManagement").then(module => ({ default: module.BranchesManagement })))
+const DeviceSyncSimulator = React.lazy(() => import("../features/admin/components/DeviceSyncSimulator").then(module => ({ default: module.DeviceSyncSimulator })))
 const SemestersManagement = React.lazy(() => import("../features/admin/components/SemestersManagement").then(module => ({ default: module.SemestersManagement })))
 const DepartmentsManagement = React.lazy(() => import("../features/admin/components/DepartmentsManagement").then(module => ({ default: module.DepartmentsManagement })))
 const CourseManagement = React.lazy(() => import("../features/lms/components/CourseManagement").then(module => ({ default: module.CourseManagement })))
@@ -162,6 +163,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="reports" element={<ReportsView />} />
           <Route path="analytics" element={<AnalyticsDashboard />} />
           <Route path="notifications" element={<NotificationManager />} />
+          <Route path="device-sync" element={<DeviceSyncSimulator />} />
         </Route>
 
         {/* Faculty Protected Routes */}

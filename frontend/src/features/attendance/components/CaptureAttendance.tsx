@@ -155,6 +155,12 @@ export const CaptureAttendance: React.FC = () => {
     }
   }, [stream])
 
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream
+    }
+  }, [stream])
+
   // Capture Base64 JPG
   const captureFrame = (): string | null => {
     if (videoRef.current) {

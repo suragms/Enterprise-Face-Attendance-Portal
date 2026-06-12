@@ -140,6 +140,12 @@ export const FaceRecognition: React.FC = () => {
     resetLivenessState()
   }, [activeTab])
 
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream
+    }
+  }, [stream])
+
   // Capture Frame Base64 JPEG
   const captureFrame = (): string | null => {
     if (videoRef.current) {

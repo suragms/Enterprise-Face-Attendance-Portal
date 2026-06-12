@@ -9,6 +9,8 @@ from .views import (
     SystemAttendanceView,
     AttendanceValidationView,
     AttendanceCorrectionView,
+    StudentSelfCheckInView,
+    ExternalBiometricDeviceSyncView,
 )
 
 router = DefaultRouter()
@@ -24,5 +26,7 @@ urlpatterns = [
     path('engine/system/', SystemAttendanceView.as_view(), name='engine-system'),
     path('engine/validate/', AttendanceValidationView.as_view(), name='engine-validate'),
     path('engine/correct/', AttendanceCorrectionView.as_view(), name='engine-correct'),
+    path('engine/self-checkin/', StudentSelfCheckInView.as_view(), name='engine-self-checkin'),
+    path('engine/device-sync/', ExternalBiometricDeviceSyncView.as_view(), name='engine-device-sync'),
     path('history/', AttendanceHistoryView.as_view(), name='attendance-history'),
 ]

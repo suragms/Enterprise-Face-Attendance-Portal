@@ -47,6 +47,7 @@ export const StudentList: React.FC = () => {
     user?.role === "BRANCH_ADMIN"
 
   const [students, setStudents] = useState<Student[]>([])
+  const [departments, setDepartments] = useState<{ id: string; name: string; code?: string }[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [totalCount, setTotalCount] = useState(0)
@@ -125,16 +126,32 @@ export const StudentList: React.FC = () => {
     }
   }, [isDepartmentLocked, lockedDepartmentName])
 
+  useEffect(() => {
+    if (!isDepartmentLocked) {
+      apiFetch<any>("/departments/")
+        .then((data) => {
+          const list = Array.isArray(data) ? data : data.results ?? []
+          setDepartments(list)
+        })
+        .catch((err) => {
+          console.error("Failed to fetch departments", err)
+        })
+    }
+  }, [isDepartmentLocked])
+
   const pageCount = Math.max(1, Math.ceil(totalCount / pageSize))
   const displayedStudents = useMemo(() => students, [students])
 
   // CRUD actions handlers
   const handleOpenAddModal = () => {
     setEditingStudent(null)
+    const defaultDept = isDepartmentLocked && lockedDepartmentName
+      ? lockedDepartmentName
+      : (departments.length > 0 ? departments[0].name : "Computer Science")
     setFormData({
       roll_no: "",
       name: "",
-      department: "Computer Science",
+      department: defaultDept,
       year: 1,
       semester: 1,
       dob: "",
@@ -283,6 +300,12 @@ export const StudentList: React.FC = () => {
                 {!isDepartmentLocked ? <option value="All">All</option> : null}
                 {isDepartmentLocked && lockedDepartmentName ? (
                   <option value={lockedDepartmentName}>{lockedDepartmentName}</option>
+                ) : departments.length > 0 ? (
+                  departments.map((dept) => (
+                    <option key={dept.id} value={dept.name}>
+                      {dept.name}
+                    </option>
+                  ))
                 ) : (
                   <>
                     <option value="Computer Science">Computer Science</option>
@@ -524,6 +547,12 @@ export const StudentList: React.FC = () => {
                   >
                     {isDepartmentLocked && lockedDepartmentName ? (
                       <option value={lockedDepartmentName}>{lockedDepartmentName}</option>
+                    ) : departments.length > 0 ? (
+                      departments.map((dept) => (
+                        <option key={dept.id} value={dept.name}>
+                          {dept.name}
+                        </option>
+                      ))
                     ) : (
                       <>
                         <option value="Computer Science">Computer Science</option>

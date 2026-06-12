@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import { BookOpen, Plus } from "lucide-react"
 import { apiFetch } from "../../../lib/api"
 import type { Course } from "../types"
@@ -36,6 +37,10 @@ export const CourseManagement: React.FC = () => {
 
   const createCourse = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!form.department) {
+      setError("Please select a department (create one in Departments if none exist).")
+      return
+    }
     try {
       await apiFetch("/courses/", { method: "POST", body: form })
       setForm({ code: "", name: "", department: form.department, duration_semesters: 8 })
@@ -57,6 +62,16 @@ export const CourseManagement: React.FC = () => {
         </div>
       </div>
 
+      {departments.length === 0 && (
+        <div className="rounded-xl border border-amber-250 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+          No departments found in this organization. You must create a department under the{" "}
+          <Link to="/admin/departments" className="underline text-amber-900 hover:text-amber-950 font-bold">
+            Departments
+          </Link>{" "}
+          tab before creating a course.
+        </div>
+      )}
+
       <form onSubmit={createCourse} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
         <input
           className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -73,16 +88,24 @@ export const CourseManagement: React.FC = () => {
           required
         />
         <select
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-100"
           value={form.department}
           onChange={(e) => setForm({ ...form, department: e.target.value })}
           required
+          disabled={departments.length === 0}
         >
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
+          {departments.length === 0 ? (
+            <option value="" disabled>No departments available (Create a department first)</option>
+          ) : (
+            <>
+              <option value="" disabled>-- Select Department --</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </>
+          )}
         </select>
         <input
           className="rounded-lg border border-slate-200 px-3 py-2 text-sm"

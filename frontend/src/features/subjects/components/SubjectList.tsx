@@ -59,15 +59,19 @@ export const SubjectList: React.FC = () => {
   const [formName, setFormName] = useState("")
   const [formCredits, setFormCredits] = useState<number>(3)
   const [formSemester, setFormSemester] = useState<number>(1)
-  const [formDepartment, setFormDepartment] = useState("Computer Science")
+  const [formDepartment, setFormDepartment] = useState("")
   const [formFacultyScode, setFormFacultyScode] = useState("")
+  const [departments, setDepartments] = useState<any[]>([])
 
   // Load subjects & staff from API
   const loadData = async () => {
     setLoading(true)
     try {
-      const subjectsData = await apiFetch<any[]>("/subjects/")
-      const staffData = await apiFetch<any[]>("/staff/")
+      const [subjectsData, staffData, deptsData] = await Promise.all([
+        apiFetch<any[]>("/subjects/"),
+        apiFetch<any[]>("/staff/"),
+        apiFetch<any>("/departments/").catch(() => ({ results: [] }))
+      ])
 
       const mappedSubjects: Subject[] = subjectsData.map((s: any) => ({
         id: s.id,
@@ -86,8 +90,14 @@ export const SubjectList: React.FC = () => {
         role: item.designation
       }))
 
+      const deptList = deptsData.results || deptsData || []
+      setDepartments(deptList)
       setSubjects(mappedSubjects)
       setAvailableFaculty(mappedFaculty)
+      
+      if (!departmentLocked && deptList.length > 0 && !formDepartment) {
+        setFormDepartment(deptList[0].name)
+      }
       setError("")
     } catch (err: any) {
       console.error(err)
@@ -123,7 +133,7 @@ export const SubjectList: React.FC = () => {
     setFormName("")
     setFormCredits(3)
     setFormSemester(1)
-    setFormDepartment("Computer Science")
+    setFormDepartment(departmentLocked && lockedDepartmentName ? lockedDepartmentName : (departments[0]?.name || ""))
     setFormFacultyScode("")
     setActiveModal("add")
   }
@@ -323,11 +333,9 @@ export const SubjectList: React.FC = () => {
               {departmentLocked && lockedDepartmentName ? (
                 <option value={lockedDepartmentName}>{lockedDepartmentName}</option>
               ) : (
-                <>
-                  <option value="Computer Science">Computer Science</option>
-                  <option value="Software Engineering">Software Engineering</option>
-                  <option value="Electrical Engineering">Electrical Engineering</option>
-                </>
+                departments.map((d) => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))
               )}
             </select>
           </div>
@@ -510,11 +518,22 @@ export const SubjectList: React.FC = () => {
                   <select 
                     value={formDepartment}
                     onChange={(e) => setFormDepartment(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-slate-700"
+                    disabled={departmentLocked || departments.length === 0}
+                    required
                   >
-                    <option value="Computer Science">Computer Science</option>
-                    <option value="Software Engineering">Software Engineering</option>
-                    <option value="Electrical Engineering">Electrical Engineering</option>
+                    {departmentLocked && lockedDepartmentName ? (
+                      <option value={lockedDepartmentName}>{lockedDepartmentName}</option>
+                    ) : departments.length === 0 ? (
+                      <option value="" disabled>No departments available</option>
+                    ) : (
+                      <>
+                        <option value="" disabled>-- Select Department --</option>
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.name}>{d.name}</option>
+                        ))}
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -612,11 +631,22 @@ export const SubjectList: React.FC = () => {
                   <select 
                     value={formDepartment}
                     onChange={(e) => setFormDepartment(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white text-slate-700"
+                    disabled={departmentLocked || departments.length === 0}
+                    required
                   >
-                    <option value="Computer Science">Computer Science</option>
-                    <option value="Software Engineering">Software Engineering</option>
-                    <option value="Electrical Engineering">Electrical Engineering</option>
+                    {departmentLocked && lockedDepartmentName ? (
+                      <option value={lockedDepartmentName}>{lockedDepartmentName}</option>
+                    ) : departments.length === 0 ? (
+                      <option value="" disabled>No departments available</option>
+                    ) : (
+                      <>
+                        <option value="" disabled>-- Select Department --</option>
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.name}>{d.name}</option>
+                        ))}
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>
