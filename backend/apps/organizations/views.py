@@ -31,8 +31,12 @@ from apps.organizations.serializers import (
 class OrganizationViewSet(ArchiveRestoreExportMixin, viewsets.ModelViewSet):
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOrganizationAdminOrAbove]
     export_filename = "organizations.csv"
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            return [permissions.IsAuthenticated(), IsOrganizationAdminOrAbove()]
+        return [permissions.IsAuthenticated(), IsPlatformSuperAdmin()]
 
     def get_queryset(self):
         user = self.request.user
@@ -41,7 +45,19 @@ class OrganizationViewSet(ArchiveRestoreExportMixin, viewsets.ModelViewSet):
         return Organization.objects.filter(memberships__user=user, memberships__is_active=True).distinct()
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        org = serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        # Automatically create SUPER_ADMIN membership for the creator (super admin)
+        OrganizationMembership.objects.get_or_create(
+            user=self.request.user,
+            organization=org,
+            role=OrganizationMembership.Role.SUPER_ADMIN,
+            defaults={
+                "is_active": True,
+                "created_by": self.request.user,
+                "updated_by": self.request.user,
+            }
+        )
+
 
 
 class BranchViewSet(ArchiveRestoreExportMixin, TenantScopedModelViewSet):

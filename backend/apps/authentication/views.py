@@ -160,8 +160,12 @@ class CustomTokenObtainPairView(APIView):
         if membership and not user.active_organization_id:
             user.active_organization = membership.organization
             user.active_branch = membership.branch
-            user.role = membership.role
-            user.save(update_fields=["active_organization", "active_branch", "role"])
+            if not user.is_super_admin:
+                user.role = membership.role
+                user.save(update_fields=["active_organization", "active_branch", "role"])
+            else:
+                user.save(update_fields=["active_organization", "active_branch"])
+
 
         _rotate_session_version(user)
         refresh = _refresh_for_user(user)
@@ -250,8 +254,11 @@ class SwitchOrganizationView(APIView):
         if membership:
             request.user.active_organization = membership.organization
             request.user.active_branch = membership.branch
-            request.user.role = membership.role
-            request.user.save(update_fields=["active_organization", "active_branch", "role"])
+            if not request.user.is_super_admin:
+                request.user.role = membership.role
+                request.user.save(update_fields=["active_organization", "active_branch", "role"])
+            else:
+                request.user.save(update_fields=["active_organization", "active_branch"])
         elif request.user.is_super_admin and organization_id:
             try:
                 org = Organization.objects.get(id=organization_id)
@@ -260,6 +267,7 @@ class SwitchOrganizationView(APIView):
                 request.user.save(update_fields=["active_organization", "active_branch"])
             except Organization.DoesNotExist:
                 return Response({"detail": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+
 
         # Re-issue JWT cookies so the new active organization is encoded in the access token payload
         refresh = _refresh_for_user(request.user)

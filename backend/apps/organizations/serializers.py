@@ -91,6 +91,11 @@ class AcademicYearSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ("id", "organization", "created_at", "updated_at", "created_by", "updated_by", "is_deleted", "deleted_at")
 
+    def create(self, validated_data):
+        academic_year = super().create(validated_data)
+        academic_year.ensure_semesters()
+        return academic_year
+
 
 class CourseSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source="department.name", read_only=True)
@@ -99,6 +104,11 @@ class CourseSerializer(serializers.ModelSerializer):
         model = Course
         fields = "__all__"
         read_only_fields = ("id", "organization", "created_at", "updated_at", "created_by", "updated_by", "is_deleted", "deleted_at")
+
+    def create(self, validated_data):
+        course = super().create(validated_data)
+        course.ensure_semesters()
+        return course
 
 
 class SemesterSerializer(serializers.ModelSerializer):

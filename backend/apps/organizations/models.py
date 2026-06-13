@@ -103,6 +103,42 @@ class AcademicYear(OrganizationScopedModel):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+    def ensure_semesters(self):
+        import datetime
+        from apps.organizations.models import Course, Semester
+        courses = Course.objects.filter(
+            organization=self.organization,
+            is_deleted=False
+        )
+        start_date = self.starts_on
+        end_date = self.ends_on
+        mid_date = start_date + (end_date - start_date) / 2
+        for course in courses:
+            for num in range(1, course.duration_semesters + 1):
+                if num % 2 == 1:
+                    sem_start = start_date
+                    sem_end = mid_date
+                else:
+                    sem_start = mid_date + datetime.timedelta(days=1)
+                    sem_end = end_date
+                
+                Semester.objects.get_or_create(
+                    organization=self.organization,
+                    course=course,
+                    academic_year=self,
+                    number=num,
+                    defaults={
+                        "starts_on": sem_start,
+                        "ends_on": sem_end,
+                        "is_active": True,
+                        "created_by": self.created_by,
+                        "updated_by": self.updated_by,
+                    }
+                )
+
 
 class Course(OrganizationScopedModel):
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="courses")
@@ -122,6 +158,42 @@ class Course(OrganizationScopedModel):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+    def ensure_semesters(self):
+        import datetime
+        from apps.organizations.models import AcademicYear, Semester
+        academic_years = AcademicYear.objects.filter(
+            organization=self.organization,
+            is_deleted=False
+        )
+        for ay in academic_years:
+            start_date = ay.starts_on
+            end_date = ay.ends_on
+            mid_date = start_date + (end_date - start_date) / 2
+            for num in range(1, self.duration_semesters + 1):
+                if num % 2 == 1:
+                    sem_start = start_date
+                    sem_end = mid_date
+                else:
+                    sem_start = mid_date + datetime.timedelta(days=1)
+                    sem_end = end_date
+                
+                Semester.objects.get_or_create(
+                    organization=self.organization,
+                    course=self,
+                    academic_year=ay,
+                    number=num,
+                    defaults={
+                        "starts_on": sem_start,
+                        "ends_on": sem_end,
+                        "is_active": True,
+                        "created_by": self.created_by,
+                        "updated_by": self.updated_by,
+                    }
+                )
 
 
 class Semester(OrganizationScopedModel):

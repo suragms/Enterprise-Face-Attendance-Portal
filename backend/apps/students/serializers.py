@@ -102,6 +102,18 @@ class StudentSerializer(serializers.ModelSerializer):
                 is_active=True,
             ).order_by("-academic_year__starts_on").first()
             if not semester:
+                course_id = mutable.get("course")
+                if course_id:
+                    course = Course.objects.filter(id=course_id, is_active=True).first()
+                    if course:
+                        course.ensure_semesters()
+                        semester = Semester.objects.filter(
+                            organization=organization,
+                            course_id=course_id,
+                            number=semester_value,
+                            is_active=True,
+                        ).order_by("-academic_year__starts_on").first()
+            if not semester:
                 raise serializers.ValidationError({"semester": "No active semester matches this course and number."})
             mutable["semester"] = str(semester.id)
 
