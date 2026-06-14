@@ -84,7 +84,6 @@ export const Timetable: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
-  const [rawDataCount, setRawDataCount] = useState(0)
   const [rawDetailsMap, setRawDetailsMap] = useState<Record<string, { code: string, name: string, faculty: string, facultyScode: string }>>({})
 
   // Roster display filter states
@@ -119,7 +118,6 @@ export const Timetable: React.FC = () => {
     setLoading(true)
     try {
       const timetableData = await apiFetch<any[]>("/timetable/")
-      setRawDataCount(timetableData.length)
       const subjectsData = await apiFetch<any[]>("/subjects/")
       const staffData = await apiFetch<any[]>("/staff/")
       const deptsData = await apiFetch<any>("/departments/?page_size=200").catch(() => [])
