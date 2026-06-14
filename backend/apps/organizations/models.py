@@ -169,6 +169,30 @@ class Course(OrganizationScopedModel):
             organization=self.organization,
             is_deleted=False
         )
+        if not academic_years.exists():
+            today = datetime.date.today()
+            if today.month >= 6:
+                start_year = today.year
+            else:
+                start_year = today.year - 1
+            end_year = start_year + 1
+            ay_name = f"{start_year}-{end_year}"
+            
+            AcademicYear.objects.get_or_create(
+                organization=self.organization,
+                name=ay_name,
+                defaults={
+                    "starts_on": datetime.date(start_year, 6, 1),
+                    "ends_on": datetime.date(end_year, 5, 31),
+                    "is_current": True,
+                    "created_by": self.created_by,
+                    "updated_by": self.updated_by,
+                }
+            )
+            academic_years = AcademicYear.objects.filter(
+                organization=self.organization,
+                is_deleted=False
+            )
         for ay in academic_years:
             start_date = ay.starts_on
             end_date = ay.ends_on

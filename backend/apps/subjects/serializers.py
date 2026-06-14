@@ -95,8 +95,17 @@ class SubjectSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         user = getattr(request, "user", None)
         department = attrs.get("department") or getattr(self.instance, "department", None)
+        course = attrs.get("course") or getattr(self.instance, "course", None)
+        semester = attrs.get("semester") or getattr(self.instance, "semester", None)
+        assigned_faculty = attrs.get("assigned_faculty") or getattr(self.instance, "assigned_faculty", None)
         if department:
             enforce_hod_department_access(user, department)
+        if course and department and course.department_id != department.id:
+            raise serializers.ValidationError({"course": "Course must belong to the selected department."})
+        if semester and course and semester.course_id != course.id:
+            raise serializers.ValidationError({"semester": "Semester must belong to the selected course."})
+        if assigned_faculty and department and assigned_faculty.department_id != department.id:
+            raise serializers.ValidationError({"assigned_faculty": "Assigned faculty must belong to the selected department."})
         return attrs
 
     @staticmethod

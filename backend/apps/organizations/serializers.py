@@ -80,9 +80,16 @@ class DepartmentSerializer(serializers.ModelSerializer):
         return code
 
     def validate(self, attrs):
+        request = self.context.get("request")
+        organization = getattr(getattr(request, "user", None), "active_organization", None)
+        branch = attrs.get("branch", getattr(self.instance, "branch", None))
+        if branch and organization and branch.organization_id != organization.id:
+            raise serializers.ValidationError({"branch": "Branch must belong to the active organization."})
         hod = attrs.get("hod")
         if hod and getattr(hod, "role", "") != "HOD":
             raise serializers.ValidationError({"hod": "Assigned user must have HOD role."})
+        if hod and organization and hod.active_organization_id not in (None, organization.id):
+            raise serializers.ValidationError({"hod": "Assigned HOD must belong to the active organization."})
         return attrs
 
 class AcademicYearSerializer(serializers.ModelSerializer):
@@ -109,6 +116,17 @@ class CourseSerializer(serializers.ModelSerializer):
         course = super().create(validated_data)
         course.ensure_semesters()
         return course
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        organization = getattr(getattr(request, "user", None), "active_organization", None)
+        department = attrs.get("department", getattr(self.instance, "department", None))
+        if department and organization and department.organization_id != organization.id:
+            raise serializers.ValidationError({"department": "Department must belong to the active organization."})
+        from apps.core.hod_scoping import enforce_hod_department_access
+
+        enforce_hod_department_access(getattr(request, "user", None), department)
+        return attrs
 
 
 class SemesterSerializer(serializers.ModelSerializer):

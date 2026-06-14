@@ -35,6 +35,12 @@ class IsHODUser(permissions.BasePermission):
         return bool(request.user and request.user.is_authenticated and ROLE_RANKS.get(role, 0) >= ROLE_RANKS["HOD"])
 
 
+class IsHODOnlyOrSuperAdminUser(permissions.BasePermission):
+    def has_permission(self, request, view):
+        role = normalize_role(getattr(request.user, "role", ""))
+        return bool(request.user and request.user.is_authenticated and role in {"HOD", "SUPER_ADMIN"})
+
+
 class IsFacultyOnlyUser(permissions.BasePermission):
     def has_permission(self, request, view):
         role = normalize_role(getattr(request.user, "role", ""))

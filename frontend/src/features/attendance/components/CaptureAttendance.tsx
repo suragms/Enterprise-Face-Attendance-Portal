@@ -21,7 +21,7 @@ export const CaptureAttendance: React.FC = () => {
     { subject_code: "MCS-102", name: "Database Systems" },
     { subject_code: "MCS-103", name: "Software Engineering" }
   ])
-  const [selectedSubjectId, setSelectedSubjectId] = useState("")
+  const [selectedSubjectId, setSelectedSubjectId] = useState("MCS-101")
   const [period, setPeriod] = useState("I")
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date()
@@ -93,15 +93,17 @@ export const CaptureAttendance: React.FC = () => {
         const dayName = days[new Date(selectedDate).getDay()]
         const schedule = await apiFetch<any>(`/timetable/current/?day=${dayName}`)
         if (schedule && schedule.scheduled) {
-          setPeriod(schedule.period)
+          const entry = schedule.entry || schedule
+          const periodMap: Record<number, string> = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII" }
+          setPeriod(periodMap[Number(entry.period)] || entry.hour || "I")
           setSubjects(prev => {
-            const exists = prev.some(s => s.subject_code === schedule.subject_code)
+            const exists = prev.some(s => s.subject_code === entry.subject_code)
             if (!exists) {
-              return [...prev, { subject_code: schedule.subject_code, name: schedule.subject_name }]
+              return [...prev, { id: entry.subject, subject_code: entry.subject_code, name: entry.subject_name }]
             }
             return prev
           })
-          setSelectedSubjectId(String(schedule.subject_id ?? schedule.subject_code))
+          setSelectedSubjectId(String(entry.subject ?? entry.subject_code))
         }
       } catch (e) {
         console.error("Failed to load schedule for date:", e)

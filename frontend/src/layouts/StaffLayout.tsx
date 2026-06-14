@@ -14,7 +14,8 @@ import {
   ClipboardList,
   Calendar,
   CalendarCheck,
-  UserPlus,
+  Bell,
+  Users,
 } from "lucide-react"
 
 export const StaffLayout: React.FC = () => {
@@ -26,13 +27,14 @@ export const StaffLayout: React.FC = () => {
   const navItems = useMemo(
     () => [
       { name: "Dashboard", path: "/faculty/dashboard", icon: LayoutDashboard },
-      { name: "Register Students", path: "/faculty/students", icon: UserPlus },
+      { name: "Students", path: "/faculty/students", icon: Users },
       { name: "Take Attendance", path: "/faculty/attendance", icon: CalendarCheck },
       { name: "Face Recognition", path: "/faculty/face-recognition", icon: ScanFace },
-      { name: "Manual Attendance", path: "/faculty/manual-attendance", icon: ClipboardList },
       { name: "Face Scan Capture", path: "/faculty/capture", icon: Fingerprint },
+      { name: "Timetable", path: "/faculty/timetable", icon: ClipboardList },
       { name: "Upload Materials", path: "/faculty/materials", icon: FileText },
       { name: "Exam Timetable", path: "/faculty/exams", icon: Calendar },
+      { name: "Notifications", path: "/faculty/notifications", icon: Bell },
       { name: "Reports", path: "/faculty/reports", icon: FileBarChart2 },
       { name: "Analytics", path: "/faculty/analytics", icon: TrendingUp },
     ],

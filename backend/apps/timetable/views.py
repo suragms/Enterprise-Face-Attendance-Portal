@@ -10,7 +10,14 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from apps.core.mixins import HodDepartmentScopedMixin
-from apps.core.permissions import IsBranchAdminOrAbove
+from apps.core.faculty_scoping import (
+    enforce_faculty_department_access,
+    enforce_faculty_subject_access,
+    is_faculty_user,
+    resolve_faculty_profile,
+    scope_queryset_for_faculty,
+)
+from apps.core.permissions import IsBranchAdminOrAbove, IsFacultyOrAbove
 from apps.core.viewsets import TenantScopedModelViewSet
 from apps.organizations.models import Branch, Course, Department, Semester
 from apps.staff.models import Faculty
@@ -28,18 +35,36 @@ class TimetableEntryViewSet(HodDepartmentScopedMixin, TenantScopedModelViewSet):
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
-            return [permissions.IsAuthenticated(), IsBranchAdminOrAbove()]
+            return [permissions.IsAuthenticated(), IsFacultyOrAbove()]
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if is_student_user(self.request.user):
             queryset = scope_queryset_for_student(queryset, self.request.user)
+        if is_faculty_user(self.request.user):
+            queryset = scope_queryset_for_faculty(queryset, self.request.user)
         for field in ["branch", "department", "course", "semester", "faculty", "subject", "day", "period", "is_active"]:
             value = self.request.query_params.get(field)
             if value not in (None, ""):
+                if field == "is_active":
+                    value = str(value).lower() in {"1", "true", "yes"}
                 queryset = queryset.filter(**{field: value})
         return queryset.order_by("day", "period")
+
+    def perform_create(self, serializer):
+        instance = serializer.save(
+            organization=self.request.user.active_organization,
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+        enforce_faculty_department_access(self.request.user, instance.department)
+        enforce_faculty_subject_access(self.request.user, instance.subject)
+
+    def perform_update(self, serializer):
+        instance = serializer.save(updated_by=self.request.user)
+        enforce_faculty_department_access(self.request.user, instance.department)
+        enforce_faculty_subject_access(self.request.user, instance.subject)
 
     def create(self, request, *args, **kwargs):
         if any(key.startswith("period_") for key in request.data):
@@ -60,6 +85,7 @@ class TimetableEntryViewSet(HodDepartmentScopedMixin, TenantScopedModelViewSet):
             return Response({"detail": "Branch, department, day, and semester are required."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             enforce_hod_department_access(request.user, department)
+            enforce_faculty_department_access(request.user, department)
         except PermissionDenied as exc:
             return Response({"detail": exc.detail}, status=status.HTTP_403_FORBIDDEN)
 
@@ -94,6 +120,10 @@ class TimetableEntryViewSet(HodDepartmentScopedMixin, TenantScopedModelViewSet):
             subject = Subject.objects.filter(organization=organization, subject_code=subject_code, is_active=True).first()
             if not subject:
                 return Response({"detail": f"Subject {subject_code} was not found."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                enforce_faculty_subject_access(request.user, subject)
+            except PermissionDenied as exc:
+                return Response({"detail": exc.detail}, status=status.HTTP_403_FORBIDDEN)
             faculty = subject.assigned_faculty or Faculty.objects.filter(organization=organization, department=department, is_active=True).order_by("staff_code").first()
             if not faculty:
                 return Response({"detail": f"No faculty assignment is available for {subject_code}."}, status=status.HTTP_400_BAD_REQUEST)
@@ -127,7 +157,14 @@ class TimetableEntryViewSet(HodDepartmentScopedMixin, TenantScopedModelViewSet):
     def current(self, request):
         now = timezone.localtime()
         day = request.query_params.get("day", now.strftime("%A").upper())
-        qs = self.get_queryset().filter(day=day, starts_at__lte=now.time(), ends_at__gte=now.time()).first()
+        qs = self.get_queryset()
+        if is_faculty_user(request.user):
+            profile = resolve_faculty_profile(request.user)
+            if profile:
+                qs = qs.filter(faculty=profile)
+            else:
+                qs = qs.none()
+        qs = qs.filter(day=day, starts_at__lte=now.time(), ends_at__gte=now.time()).first()
         if not qs:
             return Response({"scheduled": False, "day": day}, status=status.HTTP_200_OK)
         return Response({"scheduled": True, "entry": self.get_serializer(qs).data}, status=status.HTTP_200_OK)

@@ -2,15 +2,40 @@
 Central attendance engine: session lifecycle helpers, roster checks, and record upserts.
 """
 from django.db import IntegrityError, models
+from django.utils.dateparse import parse_date
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.attendance.models import AttendanceCorrection, AttendanceRecord, AttendanceSession
+from apps.core.faculty_scoping import enforce_faculty_subject_access
+from apps.core.hod_scoping import enforce_hod_department_access
 from apps.students.models import Student
 from apps.subjects.models import Subject
+from apps.timetable.models import Timetable
 
 
 VALID_STATUSES = {choice[0] for choice in AttendanceRecord.StatusChoices.choices}
+FACE_SIMILARITY_THRESHOLD = 0.65
+HOUR_TO_PERIOD = {
+    "I": 1,
+    "II": 2,
+    "III": 3,
+    "IV": 4,
+    "V": 5,
+    "VI": 6,
+    "VII": 7,
+}
+
+
+def normalize_session_date(value):
+    if not value:
+        return timezone.localdate()
+    if hasattr(value, "strftime"):
+        return value
+    parsed = parse_date(str(value))
+    if not parsed:
+        raise ValidationError({"date": "Invalid date. Use YYYY-MM-DD."})
+    return parsed
 
 
 def session_is_writable(session: AttendanceSession) -> bool:
@@ -59,6 +84,134 @@ def check_cross_subject_conflict(session: AttendanceSession, student: Student):
         )
 
 
+def enforce_session_actor_access(session: AttendanceSession, user):
+    enforce_hod_department_access(user, session.department)
+    enforce_faculty_subject_access(user, session.subject)
+
+
+def resolve_timetable_for_session(session: AttendanceSession):
+    day = session.date.strftime("%A").upper()
+    period = HOUR_TO_PERIOD.get(session.hour)
+    if not period:
+        return None
+    return (
+        Timetable.objects.filter(
+            organization=session.organization,
+            branch=session.branch,
+            department=session.department,
+            course=session.subject.course,
+            semester=session.semester,
+            subject=session.subject,
+            day=day,
+            period=period,
+            is_active=True,
+            is_deleted=False,
+        )
+        .select_related("faculty", "subject")
+        .first()
+    )
+
+
+def resolve_timetable_for_values(*, organization, branch, department, course, semester, subject, date, hour):
+    day = date.strftime("%A").upper()
+    period = HOUR_TO_PERIOD.get(hour)
+    if not period:
+        return None
+    return (
+        Timetable.objects.filter(
+            organization=organization,
+            branch=branch,
+            department=department,
+            course=course,
+            semester=semester,
+            subject=subject,
+            day=day,
+            period=period,
+            is_active=True,
+            is_deleted=False,
+        )
+        .select_related("faculty", "subject")
+        .first()
+    )
+
+
+def enforce_session_timetable(session: AttendanceSession, user=None):
+    timetable = session.timetable or resolve_timetable_for_session(session)
+    if not timetable:
+        raise ValidationError(
+            {
+                "detail": "Attendance is allowed only during a scheduled timetable period.",
+                "code": "outside_timetable",
+            }
+        )
+    if session.timetable_id != timetable.id:
+        session.timetable = timetable
+        session.save(update_fields=["timetable", "updated_at"])
+    if user:
+        enforce_faculty_subject_access(user, timetable.subject)
+    return timetable
+
+
+def enforce_session_current_time(session: AttendanceSession):
+    timetable = session.timetable or resolve_timetable_for_session(session)
+    if not timetable:
+        raise ValidationError(
+            {
+                "detail": "Attendance is allowed only during a scheduled timetable period.",
+                "code": "outside_timetable",
+            }
+        )
+    now = timezone.localtime()
+    if session.date != now.date() or not (timetable.starts_at <= now.time() <= timetable.ends_at):
+        raise ValidationError(
+            {
+                "detail": "Attendance can be marked only during the selected timetable slot.",
+                "code": "outside_timetable_time",
+                "slot": {
+                    "date": session.date.isoformat(),
+                    "starts_at": timetable.starts_at.isoformat(),
+                    "ends_at": timetable.ends_at.isoformat(),
+                },
+            }
+        )
+    return timetable
+
+
+def normalize_similarity(value):
+    if value is None:
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    if score > 1:
+        score = score / 100.0
+    return score
+
+
+def enforce_face_entry(entry):
+    score_value = entry.get("similarity_score")
+    if score_value is None:
+        score_value = entry.get("confidence_score")
+    similarity = normalize_similarity(score_value)
+    if similarity is None:
+        raise ValidationError(
+            {
+                "detail": "Face attendance requires a verification similarity score.",
+                "code": "face_verification_required",
+            }
+        )
+    if similarity < FACE_SIMILARITY_THRESHOLD:
+        raise ValidationError(
+            {
+                "detail": "Face verification similarity is below the required threshold.",
+                "code": "face_similarity_below_threshold",
+                "threshold": FACE_SIMILARITY_THRESHOLD,
+                "similarity": round(similarity, 4),
+            }
+        )
+
+
 def normalize_entries(request, session: AttendanceSession, entries: list) -> list[dict]:
     from apps.attendance.serializers import ManualAttendanceEntrySerializer
 
@@ -75,7 +228,11 @@ def normalize_entries(request, session: AttendanceSession, entries: list) -> lis
         serializer = ManualAttendanceEntrySerializer(data=entries, many=True)
         serializer.is_valid(raise_exception=True)
         raw_entries = serializer.validated_data
-        for entry in raw_entries:
+        for entry, original_entry in zip(raw_entries, entries):
+            if "confidence_score" not in entry and "confidence_score" in original_entry:
+                entry["confidence_score"] = original_entry.get("confidence_score")
+            if "similarity_score" not in entry and "similarity_score" in original_entry:
+                entry["similarity_score"] = original_entry.get("similarity_score")
             student = Student.objects.get(id=entry["student"], organization=organization)
             _append_entry(normalized, seen_students, seen_rolls, roster_ids, session, student, entry)
         return normalized
@@ -99,6 +256,7 @@ def normalize_entries(request, session: AttendanceSession, entries: list) -> lis
         payload = {
             "status": entry.get("status", "PRESENT"),
             "confidence_score": entry.get("confidence_score"),
+            "similarity_score": entry.get("similarity_score"),
             "override_reason": entry.get("override_reason"),
         }
         _append_entry(normalized, seen_students, seen_rolls, roster_ids, session, student, payload)
@@ -128,6 +286,7 @@ def _append_entry(normalized, seen_students, seen_rolls, roster_ids, session, st
             "student": student,
             "status": status,
             "confidence_score": entry.get("confidence_score"),
+            "similarity_score": entry.get("similarity_score"),
             "override_reason": entry.get("override_reason"),
         }
     )
@@ -144,8 +303,32 @@ def upsert_records(
     if not session_is_writable(session):
         raise ValidationError({"detail": f"Session is {session.session_status} and cannot be modified."})
 
+    enforce_session_actor_access(session, user)
+    enforce_session_timetable(session, user)
     upserted = 0
     for entry in entries:
+        if capture_method == AttendanceRecord.CaptureMethodChoices.FACE_RECOGNITION:
+            enforce_face_entry(entry)
+            existing = AttendanceRecord.objects.filter(
+                organization=session.organization,
+                session=session,
+                student=entry["student"],
+                is_deleted=False,
+            ).first()
+            if existing and existing.status in {
+                AttendanceRecord.StatusChoices.PRESENT,
+                AttendanceRecord.StatusChoices.LATE,
+                AttendanceRecord.StatusChoices.EXCUSED,
+            }:
+                raise ValidationError(
+                    {
+                        "detail": f"Duplicate face attendance is not allowed for {entry['student'].roll_no}.",
+                        "code": "duplicate_attendance",
+                        "roll_no": entry["student"].roll_no,
+                    }
+                )
+            if getattr(user, "role", "") == "FACULTY":
+                enforce_session_current_time(session)
         metadata = {}
         if override_reason:
             metadata = {
@@ -269,35 +452,64 @@ def validate_session(session: AttendanceSession) -> dict:
 def resolve_or_create_session(request) -> AttendanceSession:
     session_id = request.data.get("session_id")
     if session_id:
-        return AttendanceSession.objects.get(id=session_id, organization=request.user.active_organization)
+        try:
+            return AttendanceSession.objects.get(id=session_id, organization=request.user.active_organization)
+        except AttendanceSession.DoesNotExist:
+            raise ValidationError({"session_id": "Attendance session not found."})
 
     subject_value = request.data.get("subject_id") or request.data.get("subject")
     if not subject_value:
-        raise Subject.DoesNotExist("subject_id is required.")
+        raise ValidationError({"subject_id": "subject_id is required."})
     subject_filter = models.Q(subject_code=subject_value)
     if isinstance(subject_value, str) and len(subject_value) == 36 and subject_value.count("-") == 4:
         subject_filter |= models.Q(id=subject_value)
-    subject = Subject.objects.select_related("department", "department__branch", "semester", "course").get(
-        subject_filter,
+    try:
+        subject = Subject.objects.select_related("department", "department__branch", "semester", "course").get(
+            subject_filter,
+            organization=request.user.active_organization,
+        )
+    except Subject.DoesNotExist:
+        raise ValidationError({"subject_id": f"Subject with code or ID '{subject_value}' does not exist."})
+    date_value = normalize_session_date(request.data.get("date"))
+    hour_value = request.data.get("hour") or "I"
+    branch = request.user.active_branch or subject.department.branch
+    timetable = resolve_timetable_for_values(
         organization=request.user.active_organization,
+        branch=branch,
+        department=subject.department,
+        course=subject.course,
+        semester=subject.semester,
+        subject=subject,
+        date=date_value,
+        hour=hour_value,
     )
+    if not timetable:
+        raise ValidationError(
+            {
+                "detail": "Attendance is allowed only during a scheduled timetable period.",
+                "code": "outside_timetable",
+            }
+        )
     for _ in range(2):
         try:
             session, _ = AttendanceSession.objects.get_or_create(
                 organization=request.user.active_organization,
-                date=request.data.get("date") or timezone.localdate(),
-                hour=request.data.get("hour") or "I",
+                date=date_value,
+                hour=hour_value,
                 subject=subject,
                 defaults={
-                    "branch": request.user.active_branch or subject.department.branch,
+                    "branch": branch,
                     "department": subject.department,
                     "semester": subject.semester,
+                    "timetable": timetable,
                     "session_status": AttendanceSession.SessionStatus.OPEN,
                     "opened_by": request.user,
                     "created_by": request.user,
                     "updated_by": request.user,
                 },
             )
+            enforce_session_actor_access(session, request.user)
+            enforce_session_timetable(session, request.user)
             refresh_session_strength(session)
             return session
         except IntegrityError:
@@ -313,19 +525,43 @@ def create_session_from_payload(request) -> AttendanceSession:
     subject_filter = models.Q(subject_code=subject_value)
     if isinstance(subject_value, str) and len(subject_value) == 36 and subject_value.count("-") == 4:
         subject_filter |= models.Q(id=subject_value)
-    subject = Subject.objects.select_related("department", "department__branch", "semester", "course").get(
-        subject_filter,
+    try:
+        subject = Subject.objects.select_related("department", "department__branch", "semester", "course").get(
+            subject_filter,
+            organization=request.user.active_organization,
+        )
+    except Subject.DoesNotExist:
+        raise ValidationError({"subject_id": f"Subject with code or ID '{subject_value}' does not exist."})
+    date_value = normalize_session_date(request.data.get("date"))
+    hour_value = request.data.get("hour") or "I"
+    branch = request.user.active_branch or subject.department.branch
+    timetable = resolve_timetable_for_values(
         organization=request.user.active_organization,
+        branch=branch,
+        department=subject.department,
+        course=subject.course,
+        semester=subject.semester,
+        subject=subject,
+        date=date_value,
+        hour=hour_value,
     )
+    if not timetable:
+        raise ValidationError(
+            {
+                "detail": "Attendance is allowed only during a scheduled timetable period.",
+                "code": "outside_timetable",
+            }
+        )
     try:
         session = AttendanceSession.objects.create(
             organization=request.user.active_organization,
-            date=request.data.get("date") or timezone.localdate(),
-            hour=request.data.get("hour") or "I",
+            date=date_value,
+            hour=hour_value,
             subject=subject,
-            branch=request.user.active_branch or subject.department.branch,
+            branch=branch,
             department=subject.department,
             semester=subject.semester,
+            timetable=timetable,
             session_status=AttendanceSession.SessionStatus.OPEN,
             opened_by=request.user,
             created_by=request.user,
@@ -335,5 +571,7 @@ def create_session_from_payload(request) -> AttendanceSession:
         raise ValidationError(
             {"detail": "A session already exists for this date, hour, and subject."}
         ) from exc
+    enforce_session_actor_access(session, request.user)
+    enforce_session_timetable(session, request.user)
     refresh_session_strength(session)
     return session

@@ -151,7 +151,7 @@ def test_faculty_subjects_scoped_to_assigned(faculty_user, subject_instance, org
 
 
 @pytest.mark.django_db
-def test_faculty_can_register_student_in_own_department(
+def test_faculty_can_register_student(
     faculty_user, faculty_profile, department, course, semester
 ):
     client = APIClient()
@@ -173,3 +173,115 @@ def test_faculty_can_register_student_in_own_department(
     )
 
     assert response.status_code == 201
+
+
+@pytest.mark.django_db
+def test_faculty_can_create_assigned_timetable_slot(
+    faculty_user, faculty_profile, subject_instance, branch, department, course, semester
+):
+    from apps.timetable.models import Timetable
+
+    client = APIClient()
+    client.force_authenticate(faculty_user)
+
+    response = client.post(
+        "/api/v1/timetable/",
+        {
+            "branch": str(branch.id),
+            "department": str(department.id),
+            "course": str(course.id),
+            "semester": str(semester.id),
+            "subject": str(subject_instance.id),
+            "faculty": str(faculty_profile.id),
+            "day_of_week": "THURSDAY",
+            "period": 4,
+            "start_time": "11:30:00",
+            "end_time": "12:30:00",
+            "room_number": "CSE-204",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    slot = Timetable.objects.get(id=response.data["id"])
+    assert slot.faculty == faculty_profile
+    assert slot.subject == subject_instance
+    assert slot.room == "CSE-204"
+
+
+@pytest.mark.django_db
+def test_timetable_scoping_and_visibility(
+    faculty_user, faculty_profile, student_user, student_instance, subject_instance, branch, department, course, semester
+):
+    from apps.timetable.models import Timetable
+    from apps.staff.models import Faculty
+    from django.contrib.auth import get_user_model
+    from apps.organizations.models import OrganizationMembership
+
+    User = get_user_model()
+    second_fac_user = User.objects.create_user(
+        username="faculty_two",
+        email="faculty_two@hexastack.test",
+        password="securepassword123",
+        role="FACULTY",
+        active_organization=faculty_user.active_organization,
+        active_branch=branch,
+    )
+    OrganizationMembership.objects.create(
+        user=second_fac_user,
+        organization=faculty_user.active_organization,
+        branch=branch,
+        department=department,
+        role="FACULTY",
+    )
+    second_fac_profile = Faculty.objects.create(
+        organization=faculty_user.active_organization,
+        branch=branch,
+        department=department,
+        user=second_fac_user,
+        staff_code="FAC-002",
+        first_name="Alice",
+        last_name="Smith",
+        email="faculty_two@hexastack.test",
+    )
+
+    import datetime
+    now_time = datetime.datetime.now().time()
+    one_hour_later = (datetime.datetime.now() + datetime.timedelta(hours=1)).time()
+    today_day = datetime.datetime.now().strftime("%A").upper()
+
+    slot = Timetable.objects.create(
+        organization=faculty_user.active_organization,
+        branch=branch,
+        department=department,
+        course=course,
+        semester=semester,
+        subject=subject_instance,
+        faculty=second_fac_profile,
+        day=today_day,
+        period=1,
+        starts_at=now_time,
+        ends_at=one_hour_later,
+        is_active=True,
+    )
+
+    # 1. Verify Student client can fetch with is_active=true query param without error
+    student_client = APIClient()
+    student_client.force_authenticate(student_user)
+    student_resp = student_client.get("/api/v1/timetable/?is_active=true")
+    assert student_resp.status_code == 200
+    rows = student_resp.json() if isinstance(student_resp.json(), list) else student_resp.json().get("results", [])
+    assert any(row["id"] == str(slot.id) for row in rows)
+
+    # 2. Verify Faculty user can see the slot even if it belongs to second faculty (in same department)
+    faculty_client = APIClient()
+    faculty_client.force_authenticate(faculty_user)
+    fac_resp = faculty_client.get("/api/v1/timetable/")
+    assert fac_resp.status_code == 200
+    rows = fac_resp.json() if isinstance(fac_resp.json(), list) else fac_resp.json().get("results", [])
+    assert any(row["id"] == str(slot.id) for row in rows)
+
+    # 3. Verify Faculty user's current endpoint does NOT return second faculty's slot
+    curr_resp = faculty_client.get(f"/api/v1/timetable/current/?day={today_day}")
+    assert curr_resp.status_code == 200
+    assert curr_resp.json().get("scheduled") is False

@@ -166,6 +166,18 @@ export const AppRoutes: React.FC = () => {
           <Route path="device-sync" element={<DeviceSyncSimulator />} />
         </Route>
 
+        <Route
+          path="/hod"
+          element={
+            <ProtectedRoute allowedRoles={["HOD", "SUPER_ADMIN", "PLATFORM_SUPER_ADMIN", "ORGANIZATION_ADMIN", "BRANCH_ADMIN"]}>
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="/hod/timetable" replace />} />
+          <Route path="timetable" element={<Timetable />} />
+        </Route>
+
         {/* Faculty Protected Routes */}
         <Route 
           path="/faculty" 
@@ -180,11 +192,13 @@ export const AppRoutes: React.FC = () => {
           <Route path="students" element={<StudentList />} />
           <Route path="manual" element={<Navigate to="/faculty/students" replace />} />
           <Route path="attendance" element={<AttendanceEngine />} />
-          <Route path="manual-attendance" element={<AttendanceEngine />} />
+          <Route path="manual-attendance" element={<Navigate to="/faculty/attendance" replace />} />
           <Route path="capture" element={<CaptureAttendance />} />
           <Route path="face-recognition" element={<FaceRecognition />} />
+          <Route path="timetable" element={<Timetable />} />
           <Route path="materials" element={<StudyMaterialsManagement />} />
           <Route path="exams" element={<ExamTimetableManagement />} />
+          <Route path="notifications" element={<NotificationManager />} />
           <Route path="reports" element={<ReportsView />} />
           <Route path="analytics" element={<AnalyticsDashboard />} />
         </Route>

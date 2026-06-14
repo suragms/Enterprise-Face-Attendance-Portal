@@ -109,3 +109,38 @@ def test_faculty_auto_linking_enrollment(faculty_user, faculty_profile, organiza
     assert enrollment.faculty == faculty_profile
     assert enrollment.subject_type == FaceEnrollment.SubjectType.FACULTY
     assert enrollment.organization == organization
+
+
+@pytest.mark.django_db
+def test_face_verify_rejects_match_below_similarity_floor(monkeypatch, student_user, student_instance, organization):
+    monkeypatch.setattr(FaceRecognitionService, "verify_against_pose_set", lambda self, pose_set, encoding, tolerance: {
+        "match": True,
+        "confidence": 60.0,
+        "distance": 0.05,
+    })
+
+    student_user.role = "STUDENT"
+    student_user.active_organization = organization
+    student_user.save()
+
+    FaceEnrollment.objects.create(
+        organization=organization,
+        user=student_user,
+        student=student_instance,
+        subject_type=FaceEnrollment.SubjectType.STUDENT,
+        encrypted_embedding=[0.1, 0.2],
+        pose_embeddings={"FRONT": [0.1, 0.2]},
+        captured_poses=["FRONT"],
+    )
+
+    client = APIClient()
+    client.force_authenticate(student_user)
+    response = client.post(
+        "/api/face-recognition/verify/",
+        {"image": "data:image/png;base64,1"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["match"] is False
+    assert response.data["match_details"]["threshold"] == 0.65

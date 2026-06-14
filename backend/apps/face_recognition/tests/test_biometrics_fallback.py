@@ -1,11 +1,13 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from rest_framework.test import APIClient
 from apps.face_recognition.models import FaceEnrollment
 
 User = get_user_model()
 
 @pytest.mark.django_db
+@override_settings(DEBUG=True)
 def test_biometrics_fallback_mode_succeeds_in_debug(student_user, student_instance, organization):
     # Set up student user
     student_user.role = "STUDENT"

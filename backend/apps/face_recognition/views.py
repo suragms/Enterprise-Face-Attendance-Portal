@@ -12,7 +12,10 @@ from apps.face_recognition.models import FaceAuditLog, FaceEnrollment
 from apps.face_recognition.services import FaceRecognitionService
 from apps.staff.models import Faculty
 from apps.students.models import Student
+from apps.core.hod_scoping import enforce_hod_department_access
 from apps.core.permissions import ROLE_RANKS, normalize_role
+
+FACE_SIMILARITY_THRESHOLD = 0.65
 
 User = get_user_model()
 REQUIRED_POSES = ("FRONT", "LEFT", "RIGHT", "UP", "DOWN")
@@ -63,6 +66,14 @@ def _active_enrollment_payloads(organization):
     return [_enrollment_identity(enrollment) for enrollment in enrollments]
 
 
+def _normalized_similarity(value):
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return score / 100.0 if score > 1 else score
+
+
 def _refresh_for_user(user):
     refresh = RefreshToken.for_user(user)
     refresh["token_version"] = user.token_version
@@ -106,6 +117,14 @@ class FaceRegisterView(APIView):
                 return Response({"error": "Student not found for face enrollment."}, status=status.HTTP_404_NOT_FOUND)
             if not student.user_id:
                 return Response({"error": "Student must be linked to a login user before face enrollment."}, status=status.HTTP_400_BAD_REQUEST)
+            role = normalize_role(getattr(request.user, "role", ""))
+            can_enroll_others = ROLE_RANKS.get(role, 0) >= ROLE_RANKS["HOD"]
+            if student.user_id != request.user.id and not can_enroll_others:
+                return Response({"error": "You are not allowed to enroll another student's face."}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                enforce_hod_department_access(request.user, student.department)
+            except Exception as exc:
+                return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
             user = student.user
             subject_type = FaceEnrollment.SubjectType.STUDENT
         elif staff_code or faculty_id:
@@ -114,6 +133,14 @@ class FaceRegisterView(APIView):
             faculty = Faculty.objects.select_related("user").filter(**faculty_filters).first()
             if not faculty:
                 return Response({"error": "Faculty not found for face enrollment."}, status=status.HTTP_404_NOT_FOUND)
+            role = normalize_role(getattr(request.user, "role", ""))
+            can_enroll_others = ROLE_RANKS.get(role, 0) >= ROLE_RANKS["HOD"]
+            if faculty.user_id != request.user.id and not can_enroll_others:
+                return Response({"error": "You are not allowed to enroll another faculty member's face."}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                enforce_hod_department_access(request.user, faculty.department)
+            except Exception as exc:
+                return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
             user = faculty.user
             subject_type = FaceEnrollment.SubjectType.FACULTY
         else:
@@ -278,6 +305,13 @@ class FaceVerifyView(APIView):
             match = self.face_service.verify_against_pose_set(pose_set, probe["encoding"], enrollment.confidence_threshold)
         else:
             match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
+        if match.get("match") and _normalized_similarity(match.get("confidence")) < FACE_SIMILARITY_THRESHOLD:
+            match = {
+                **match,
+                "match": False,
+                "message": "Face verification similarity is below the required threshold.",
+                "threshold": FACE_SIMILARITY_THRESHOLD,
+            }
         self._audit(request, "VERIFICATION", match["match"], match["confidence"], liveness.get("score", 0))
         identity = _enrollment_identity(enrollment)
         return Response(
@@ -349,7 +383,11 @@ class FaceLoginView(APIView):
                 match = self.face_service.verify_against_pose_set(pose_set, probe["encoding"], enrollment.confidence_threshold)
             else:
                 match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
-            if match["match"] and (best is None or match["confidence"] > best[1]["confidence"]):
+            if (
+                match["match"]
+                and _normalized_similarity(match.get("confidence")) >= FACE_SIMILARITY_THRESHOLD
+                and (best is None or match["confidence"] > best[1]["confidence"])
+            ):
                 best = (enrollment, match)
         
         if best is None:

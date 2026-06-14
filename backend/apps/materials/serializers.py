@@ -57,6 +57,10 @@ class StudyMaterialSerializer(serializers.ModelSerializer):
         return obj.material_type == StudyMaterial.MaterialType.VIDEOS
 
     def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        subject = attrs.get("subject") or getattr(self.instance, "subject", None)
+        semester = attrs.get("semester") or getattr(self.instance, "semester", None)
         material_type = attrs.get("material_type") or getattr(
             self.instance, "material_type", StudyMaterial.MaterialType.NOTES
         )
@@ -70,5 +74,14 @@ class StudyMaterialSerializer(serializers.ModelSerializer):
                 )
         elif not file_obj:
             raise serializers.ValidationError("Provide a file upload for this material type.")
+
+        if subject and semester and subject.semester_id != semester.id:
+            raise serializers.ValidationError({"semester": "Semester must match the selected subject."})
+        if subject:
+            from apps.core.hod_scoping import enforce_hod_department_access
+            from apps.core.faculty_scoping import enforce_faculty_subject_access
+
+            enforce_hod_department_access(user, subject.department)
+            enforce_faculty_subject_access(user, subject)
 
         return attrs

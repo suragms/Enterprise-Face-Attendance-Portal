@@ -122,13 +122,31 @@ class FacultyService:
         role = normalize_role(getattr(actor, "role", ""))
 
         if role == "HOD":
-            hod_department = self.repository.resolve_hod_department(actor)
-            if not hod_department:
+            from apps.core.hod_scoping import get_hod_departments
+            dept_ids = get_hod_departments(actor)
+            if not dept_ids:
                 raise FacultyServiceError(
                     "HOD department is not configured. Assign a department to this HOD account first.",
                     field="department",
                     status_code=400,
                 )
+            
+            if department_value:
+                from apps.organizations.models import Department
+                if isinstance(department_value, Department):
+                    requested_dept = department_value
+                else:
+                    department_str = str(department_value).strip()
+                    queryset = Department.objects.filter(organization=organization, is_active=True, is_deleted=False)
+                    if len(department_str) == 36 and department_str.count("-") == 4:
+                        requested_dept = queryset.filter(id=department_str).first()
+                    else:
+                        requested_dept = queryset.filter(name__iexact=department_str).first() or queryset.filter(code__iexact=department_str).first()
+                
+                if requested_dept and str(requested_dept.id) in [str(d_id) for d_id in dept_ids]:
+                    return requested_dept
+
+            hod_department = self.repository.resolve_hod_department(actor)
             return hod_department
 
         from apps.organizations.models import Department

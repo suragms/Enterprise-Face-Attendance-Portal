@@ -6,7 +6,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsBranchAdminOrAbove
+from apps.core.faculty_scoping import is_faculty_user, resolve_faculty_profile
+from apps.core.permissions import IsBranchAdminOrAbove, IsFacultyOrAbove
 from apps.core.student_scoping import is_student_user
 from apps.core.viewsets import TenantScopedModelViewSet
 from apps.notifications.models import Notification, NotificationSchedule, NotificationTemplate
@@ -145,7 +146,7 @@ class NotificationLogViewSet(TenantScopedModelViewSet):
 
 
 class TriggerNotificationAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsBranchAdminOrAbove]
+    permission_classes = [permissions.IsAuthenticated, IsFacultyOrAbove]
 
     def post(self, request):
         serializer = TriggerNotificationSerializer(data=request.data)
@@ -169,6 +170,20 @@ class TriggerNotificationAPIView(APIView):
                 email=payload["recipient"]
             ).first()
         if target_user:
+            if is_faculty_user(request.user):
+                profile = resolve_faculty_profile(request.user)
+                if not profile:
+                    return Response({"detail": "Faculty profile is not configured."}, status=status.HTTP_403_FORBIDDEN)
+                allowed = target_user.memberships.filter(
+                    organization=request.user.active_organization,
+                    department=profile.department,
+                    is_active=True,
+                ).exists()
+                if not allowed and target_user != request.user:
+                    return Response(
+                        {"detail": "Faculty can notify only users in their assigned department."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
             context["user"] = target_user
 
         template = NotificationTemplate.objects.filter(

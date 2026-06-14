@@ -50,9 +50,10 @@ class FacultyRepository:
                 return queryset.none()
             return queryset.filter(pk=profile.pk)
         if role == "HOD":
-            hod_department = self.resolve_hod_department(user)
-            if hod_department:
-                queryset = queryset.filter(department_id=hod_department.id)
+            from apps.core.hod_scoping import get_hod_departments
+            dept_ids = get_hod_departments(user)
+            if dept_ids:
+                queryset = queryset.filter(department_id__in=dept_ids)
 
         if search:
             queryset = queryset.filter(
@@ -82,14 +83,17 @@ class FacultyRepository:
         role = normalize_role(getattr(user, "role", ""))
 
         if role == "HOD":
-            hod_department = self.resolve_hod_department(user)
-            if not hod_department:
+            from apps.core.hod_scoping import get_hod_departments
+            dept_ids = get_hod_departments(user)
+            if not dept_ids:
                 return [], None, True
-            return (
-                [{"id": str(hod_department.id), "name": hod_department.name, "code": hod_department.code}],
-                str(hod_department.id),
-                True,
-            )
+            
+            departments = Department.objects.filter(id__in=dept_ids, is_active=True, is_deleted=False).order_by("name")
+            items = [{"id": str(item.id), "name": item.name, "code": item.code} for item in departments]
+            primary_dept = self.resolve_hod_department(user)
+            default_id = str(primary_dept.id) if primary_dept else (items[0]["id"] if items else None)
+            lock_field = len(items) <= 1
+            return items, default_id, lock_field
 
         departments = Department.objects.filter(
             organization_id=organization_id,

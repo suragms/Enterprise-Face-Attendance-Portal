@@ -15,10 +15,11 @@ import {
   Activity,
   CheckCircle2
 } from "lucide-react"
-import { apiFetch } from "../../../lib/api"
+import { API_BASE, apiFetch } from "../../../lib/api"
 import { useAuth } from "../../../context/AuthContext"
-import { isAdminRole, isHodRole } from "../../../lib/roles"
+import { isAdminRole, isFacultyRole, isHodRole } from "../../../lib/roles"
 import { useHodContext } from "../../../hooks/useHodContext"
+import { useFacultyContext } from "../../../hooks/useFacultyContext"
 import { HodDepartmentBanner } from "../../admin/components/HodDepartmentBanner"
 
 interface Faculty {
@@ -66,18 +67,28 @@ export const Timetable: React.FC = () => {
   const { user } = useAuth()
   const isAdmin = isAdminRole(user?.role)
   const isHod = isHodRole(user?.role)
-  const { department, departmentLocked } = useHodContext(user?.role)
+  const canManageTimetable = isAdmin || isFacultyRole(user?.role)
+  const isFaculty = isFacultyRole(user?.role)
+  const hodCtx = useHodContext(isHod ? user?.role : null)
+  const facCtx = useFacultyContext(isFaculty ? user?.role : null)
+
+  const department = isHod ? hodCtx.department : (isFaculty ? facCtx.department : null)
+  const departmentLocked = isHod ? hodCtx.departmentLocked : (isFaculty ? facCtx.departmentLocked : false)
   const lockedDepartmentName = department?.name
 
   const [schedules, setSchedules] = useState<DaySchedule[]>([])
   const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([])
   const [availableFaculty, setAvailableFaculty] = useState<Faculty[]>([])
   const [activeConflicts, setActiveConflicts] = useState<TimetableConflict[]>([])
+  const [departments, setDepartments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
+  const [rawDataCount, setRawDataCount] = useState(0)
+  const [rawDetailsMap, setRawDetailsMap] = useState<Record<string, { code: string, name: string, faculty: string, facultyScode: string }>>({})
+
   // Roster display filter states
-  const [filterDept, setFilterDept] = useState("Computer Science")
+  const [filterDept, setFilterDept] = useState("")
   const [filterSemester, setFilterSemester] = useState(1)
 
   // Primary timetable tab: "weekly" vs "monthly"
@@ -92,7 +103,7 @@ export const Timetable: React.FC = () => {
 
   // Form input states
   const [formDay, setFormDay] = useState("MONDAY")
-  const [formDept, setFormDept] = useState("Computer Science")
+  const [formDept, setFormDept] = useState("")
   const [formSemester, setFormSemester] = useState(1)
   
   const [p1, setP1] = useState("FREE")
@@ -108,11 +119,24 @@ export const Timetable: React.FC = () => {
     setLoading(true)
     try {
       const timetableData = await apiFetch<any[]>("/timetable/")
+      setRawDataCount(timetableData.length)
       const subjectsData = await apiFetch<any[]>("/subjects/")
       const staffData = await apiFetch<any[]>("/staff/")
+      const deptsData = await apiFetch<any>("/departments/?page_size=200").catch(() => [])
 
+      const tempDetailsMap: Record<string, { code: string, name: string, faculty: string, facultyScode: string }> = {}
       const groupedSchedules = new Map<string, DaySchedule>()
       timetableData.forEach((item: any) => {
+        const subCode = item.subject_code ?? item.subject?.subject_code
+        if (subCode) {
+          tempDetailsMap[subCode] = {
+            code: subCode,
+            name: item.subject_name ?? item.subject?.name ?? "Unknown",
+            faculty: item.faculty_name ?? "Unassigned",
+            facultyScode: item.faculty_code ?? ""
+          }
+        }
+
         const departmentName = item.department_name ?? item.department
         const semesterNumber = item.semester_number ?? item.semester
         const key = `${item.day}-${departmentName}-${semesterNumber}`
@@ -154,6 +178,10 @@ export const Timetable: React.FC = () => {
         dept: item.department_name ?? item.department
       }))
 
+      const deptsList = deptsData.results || deptsData || []
+      setDepartments(deptsList)
+
+      setRawDetailsMap(tempDetailsMap)
       setSchedules(mappedSchedules)
       setAvailableSubjects(mappedSubjects)
       setAvailableFaculty(mappedFaculty)
@@ -223,8 +251,11 @@ export const Timetable: React.FC = () => {
     if (departmentLocked && lockedDepartmentName) {
       setFilterDept(lockedDepartmentName)
       setFormDept(lockedDepartmentName)
+    } else if (!departmentLocked && departments.length > 0) {
+      setFilterDept(prev => prev || departments[0].name)
+      setFormDept(prev => prev || departments[0].name)
     }
-  }, [departmentLocked, lockedDepartmentName])
+  }, [departmentLocked, lockedDepartmentName, departments])
 
   // Filter available subjects based on form values
   const formFilteredSubjects = useMemo(() => {
@@ -272,20 +303,27 @@ export const Timetable: React.FC = () => {
   const getSlotDetails = (code: string) => {
     if (code === "FREE") return null
     const sub = availableSubjects.find(s => s.code === code)
-    if (!sub) return { code, name: "Unknown", faculty: null, facultyScode: "" }
-    const fac = availableFaculty.find(f => f.scode === sub.facultyScode)
-    return {
-      code: sub.code,
-      name: sub.name,
-      faculty: fac ? fac.name : "Unassigned",
-      facultyScode: sub.facultyScode || ""
+    if (sub) {
+      const fac = availableFaculty.find(f => f.scode === sub.facultyScode)
+      return {
+        code: sub.code,
+        name: sub.name,
+        faculty: fac ? fac.name : "Unassigned",
+        facultyScode: sub.facultyScode || ""
+      }
     }
+    // Fallback: look up in rawDetailsMap built from initial timetable fetch
+    const rawDetail = rawDetailsMap[code]
+    if (rawDetail) {
+      return rawDetail
+    }
+    return { code, name: "Unknown", faculty: null, facultyScode: "" }
   }
 
   // Submit Handlers with auto validation checks
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!isAdmin) {
+    if (!canManageTimetable) {
       alert("Unauthorized to perform this action.")
       return
     }
@@ -320,7 +358,7 @@ export const Timetable: React.FC = () => {
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedSchedule) return
-    if (!isAdmin) {
+    if (!canManageTimetable) {
       alert("Unauthorized to perform this action.")
       return
     }
@@ -354,7 +392,7 @@ export const Timetable: React.FC = () => {
 
   const handleDeleteConfirm = async () => {
     if (!selectedSchedule) return
-    if (!isAdmin) {
+    if (!canManageTimetable) {
       alert("Unauthorized to perform this action.")
       return
     }
@@ -372,6 +410,10 @@ export const Timetable: React.FC = () => {
 
   const handlePrint = () => {
     window.print()
+  }
+
+  const handleDownload = () => {
+    window.open(`${API_BASE}/timetable/export-pdf/`, "_blank", "noopener,noreferrer")
   }
 
   // Monthly days mapper helper
@@ -445,8 +487,16 @@ export const Timetable: React.FC = () => {
             <Printer className="w-3.5 h-3.5 text-slate-500" />
             Print View
           </button>
+
+          <button
+            onClick={handleDownload}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 border border-slate-205 bg-white hover:bg-slate-50 text-slate-705 rounded-lg text-xs font-bold shadow-sm transition-all"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-500" />
+            Download PDF
+          </button>
           
-          {isAdmin && (
+          {canManageTimetable && (
             <button 
               onClick={handleOpenAdd}
               className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
@@ -493,11 +543,11 @@ export const Timetable: React.FC = () => {
             {departmentLocked && lockedDepartmentName ? (
               <option value={lockedDepartmentName}>{lockedDepartmentName}</option>
             ) : (
-              <>
-                <option value="Computer Science">Computer Science</option>
-                <option value="Software Engineering">Software Engineering</option>
-                <option value="Electrical Engineering">Electrical Engineering</option>
-              </>
+              departments.map((d) => (
+                <option key={d.id} value={d.name}>
+                  {d.name}
+                </option>
+              ))
             )}
           </select>
         </div>
@@ -588,7 +638,7 @@ export const Timetable: React.FC = () => {
                       <td className="px-6 py-5 text-right font-semibold border-l border-slate-100 print:hidden whitespace-nowrap">
                         {sch ? (
                           <div className="flex justify-end gap-1.5">
-                            {isAdmin && (
+                            {canManageTimetable && (
                               <>
                                 <button 
                                   onClick={() => handleOpenEdit(sch)}
@@ -608,7 +658,7 @@ export const Timetable: React.FC = () => {
                             )}
                           </div>
                         ) : (
-                          isAdmin && (
+                          canManageTimetable && (
                             <button 
                               onClick={() => {
                                 handleOpenAdd()
@@ -731,7 +781,7 @@ export const Timetable: React.FC = () => {
               )}
             </div>
 
-            {isAdmin && selectedMonthDay && getMonthDaySlotDetails(selectedMonthDay) && (
+            {canManageTimetable && selectedMonthDay && getMonthDaySlotDetails(selectedMonthDay) && (
               <button 
                 onClick={() => {
                   const sch = getMonthDaySlotDetails(selectedMonthDay)
@@ -861,9 +911,11 @@ export const Timetable: React.FC = () => {
                     onChange={(e) => setFormDept(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   >
-                    <option value="Computer Science">Computer Science</option>
-                    <option value="Software Engineering">Software Engineering</option>
-                    <option value="Electrical Engineering">Electrical Engineering</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.name}>
+                        {d.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>

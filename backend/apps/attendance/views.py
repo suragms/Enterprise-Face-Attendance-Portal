@@ -2,14 +2,18 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.authentication.permissions import IsFacultyOnlyUser, IsHODUser
 from apps.attendance.engine import (
     create_session_from_payload,
+    enforce_face_entry,
+    enforce_session_actor_access,
+    enforce_session_timetable,
     normalize_entries,
+    normalize_similarity,
     resolve_or_create_session,
     session_is_writable,
     upsert_records,
@@ -28,6 +32,7 @@ from apps.core.faculty_scoping import (
     scope_attendance_records_for_faculty,
     scope_attendance_sessions_for_faculty,
 )
+from apps.core.hod_scoping import scope_queryset_for_hod
 from apps.core.student_scoping import is_student_user, scope_queryset_for_student
 from apps.organizations.models import AuditLog
 
@@ -67,13 +72,27 @@ class AttendanceSessionViewSet(TenantScopedModelViewSet):
         return queryset.order_by("-date", "hour")
 
     def perform_create(self, serializer):
-        serializer.save(
+        session = serializer.save(
             organization=self.request.user.active_organization,
             opened_by=self.request.user,
             session_status=AttendanceSession.SessionStatus.OPEN,
             created_by=self.request.user,
             updated_by=self.request.user,
         )
+        enforce_session_actor_access(session, self.request.user)
+        enforce_session_timetable(session, self.request.user)
+
+    def _session_for_action(self, pk):
+        queryset = AttendanceSession.objects.select_for_update().filter(
+            id=pk,
+            organization=self.request.user.active_organization,
+        ).select_related("subject", "department", "branch", "semester", "timetable")
+        queryset = scope_attendance_sessions_for_faculty(queryset, self.request.user)
+        queryset = scope_queryset_for_hod(queryset, self.request.user)
+        try:
+            return queryset.get()
+        except AttendanceSession.DoesNotExist as exc:
+            raise NotFound("Attendance session not found.") from exc
 
     @action(detail=False, methods=["post"], url_path="create-session")
     def create_session(self, request):
@@ -88,9 +107,7 @@ class AttendanceSessionViewSet(TenantScopedModelViewSet):
     def open_session(self, request, pk=None):
         """Re-open a REJECTED session for faculty edits."""
         with transaction.atomic():
-            session = AttendanceSession.objects.select_for_update().get(
-                id=pk, organization=request.user.active_organization
-            )
+            session = self._session_for_action(pk)
             if session.session_status != AttendanceSession.SessionStatus.REJECTED:
                 return Response(
                     {"detail": "Only REJECTED sessions can be reopened."},
@@ -114,9 +131,7 @@ class AttendanceSessionViewSet(TenantScopedModelViewSet):
     @action(detail=True, methods=["post"], url_path="submit")
     def submit_session(self, request, pk=None):
         with transaction.atomic():
-            session = AttendanceSession.objects.select_for_update().get(
-                id=pk, organization=request.user.active_organization
-            )
+            session = self._session_for_action(pk)
             if session.session_status not in (
                 AttendanceSession.SessionStatus.OPEN,
                 AttendanceSession.SessionStatus.REJECTED,
@@ -143,9 +158,7 @@ class AttendanceSessionViewSet(TenantScopedModelViewSet):
     @action(detail=True, methods=["post"], url_path="approve")
     def approve_session(self, request, pk=None):
         with transaction.atomic():
-            session = AttendanceSession.objects.select_for_update().get(
-                id=pk, organization=request.user.active_organization
-            )
+            session = self._session_for_action(pk)
             if session.session_status != AttendanceSession.SessionStatus.SUBMITTED:
                 return Response(
                     {"detail": "Only SUBMITTED sessions can be approved."},
@@ -160,9 +173,7 @@ class AttendanceSessionViewSet(TenantScopedModelViewSet):
     @action(detail=True, methods=["post"], url_path="reject")
     def reject_session(self, request, pk=None):
         with transaction.atomic():
-            session = AttendanceSession.objects.select_for_update().get(
-                id=pk, organization=request.user.active_organization
-            )
+            session = self._session_for_action(pk)
             if session.session_status not in [
                 AttendanceSession.SessionStatus.SUBMITTED,
                 AttendanceSession.SessionStatus.APPROVED,
@@ -179,9 +190,7 @@ class AttendanceSessionViewSet(TenantScopedModelViewSet):
     @action(detail=True, methods=["post"], url_path="lock")
     def lock_session(self, request, pk=None):
         with transaction.atomic():
-            session = AttendanceSession.objects.select_for_update().get(
-                id=pk, organization=request.user.active_organization
-            )
+            session = self._session_for_action(pk)
             if session.session_status != AttendanceSession.SessionStatus.APPROVED:
                 return Response(
                     {"detail": "Only APPROVED sessions can be locked."},
@@ -195,9 +204,7 @@ class AttendanceSessionViewSet(TenantScopedModelViewSet):
     @action(detail=True, methods=["post"], url_path="unlock")
     def unlock_session(self, request, pk=None):
         with transaction.atomic():
-            session = AttendanceSession.objects.select_for_update().get(
-                id=pk, organization=request.user.active_organization
-            )
+            session = self._session_for_action(pk)
             if session.session_status != AttendanceSession.SessionStatus.LOCKED:
                 return Response(
                     {"detail": "Only LOCKED sessions can be unlocked."},
@@ -491,6 +498,10 @@ class StudentSelfCheckInView(APIView):
             session = sessions.filter(hour=current_hour).first()
         if not session:
             session = sessions.first()
+        try:
+            enforce_session_timetable(session, request.user)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
 
         # 3. Biometric Verification
         enrollment = FaceEnrollment.objects.filter(
@@ -536,6 +547,25 @@ class StudentSelfCheckInView(APIView):
                 metadata={"action": "self_checkin", "detail": "Face verification mismatch"}
             )
             return Response({"error": "Biometric face verification failed. The captured face does not match your enrolled profile."}, status=status.HTTP_400_BAD_REQUEST)
+        similarity = normalize_similarity(match.get("confidence"))
+        if similarity is None or similarity < 0.65:
+            FaceAuditLog.objects.create(
+                organization=request.user.active_organization,
+                actor=request.user,
+                event=FaceAuditLog.Event.VERIFICATION,
+                success=False,
+                confidence=match.get("confidence", 0),
+                liveness_score=liveness.get("score", 0),
+                metadata={"action": "self_checkin", "detail": "Similarity below threshold", "threshold": 0.65}
+            )
+            return Response(
+                {"error": "Face verification similarity is below the required threshold."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            enforce_face_entry({"student": student, "status": "PRESENT", "confidence_score": match["confidence"]})
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
 
         # 4. Save Attendance Record
         metadata = {
@@ -548,22 +578,29 @@ class StudentSelfCheckInView(APIView):
         }
 
         with transaction.atomic():
-            record, created = AttendanceRecord.objects.update_or_create(
+            existing_record = AttendanceRecord.objects.select_for_update().filter(
                 organization=session.organization,
                 session=session,
                 student=student,
-                defaults={
-                    "status": AttendanceRecord.StatusChoices.PRESENT,
-                    "capture_method": AttendanceRecord.CaptureMethodChoices.FACE_RECOGNITION,
-                    "confidence_score": match["confidence"],
-                    "captured_at": timezone.now(),
-                    "updated_by": request.user,
-                    "metadata": metadata
-                }
+                is_deleted=False,
+            ).first()
+            if existing_record:
+                return Response(
+                    {"error": "Duplicate attendance is not allowed for this session."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            record = AttendanceRecord.objects.create(
+                organization=session.organization,
+                session=session,
+                student=student,
+                status=AttendanceRecord.StatusChoices.PRESENT,
+                capture_method=AttendanceRecord.CaptureMethodChoices.FACE_RECOGNITION,
+                confidence_score=match["confidence"],
+                captured_at=timezone.now(),
+                created_by=request.user,
+                updated_by=request.user,
+                metadata=metadata,
             )
-            if created:
-                record.created_by = request.user
-                record.save(update_fields=["created_by"])
             refresh_session_strength(session)
 
         # Logging Audit Events
@@ -599,7 +636,7 @@ class StudentSelfCheckInView(APIView):
 
 
 class ExternalBiometricDeviceSyncView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsHODUser]
 
     def post(self, request):
         from django.utils import timezone
@@ -686,6 +723,8 @@ class ExternalBiometricDeviceSyncView(APIView):
                 semester=student.semester,
                 day=day_of_week,
                 period=period_num,
+                branch=student.branch,
+                department=student.department,
                 is_active=True,
                 is_deleted=False
             ).select_related("subject").first()
@@ -693,16 +732,12 @@ class ExternalBiometricDeviceSyncView(APIView):
             subject = timetable_entry.subject if timetable_entry else None
 
             if not subject:
-                from apps.subjects.models import Subject
-                subject = Subject.objects.filter(
-                    organization=request.user.active_organization,
-                    department=student.department,
-                    semester=student.semester,
-                    is_deleted=False
-                ).first()
-
-            if not subject:
-                errors.append(f"No subject scheduled or found for student {roll_no} at {hour_val}.")
+                errors.append(f"No subject scheduled for student {roll_no} at {hour_val}.")
+                continue
+            try:
+                enforce_face_entry({"student": student, "status": status_val, "confidence_score": confidence})
+            except ValidationError as exc:
+                errors.append(f"Face verification failed for {roll_no}: {exc.detail}")
                 continue
 
             with transaction.atomic():
@@ -715,6 +750,7 @@ class ExternalBiometricDeviceSyncView(APIView):
                         "branch": student.branch,
                         "department": student.department,
                         "semester": student.semester,
+                        "timetable": timetable_entry,
                         "session_status": AttendanceSession.SessionStatus.OPEN,
                         "opened_by": request.user,
                         "created_by": request.user,
@@ -724,8 +760,9 @@ class ExternalBiometricDeviceSyncView(APIView):
 
                 try:
                     check_cross_subject_conflict(session, student)
+                    enforce_session_timetable(session, request.user)
                 except ValidationError:
-                    errors.append(f"Cross subject conflict for student {roll_no} in period {hour_val}.")
+                    errors.append(f"Attendance is not allowed for student {roll_no} in period {hour_val}.")
                     continue
 
                 metadata = {
@@ -735,22 +772,27 @@ class ExternalBiometricDeviceSyncView(APIView):
                     "device_sync_timestamp": timestamp_str
                 }
 
-                record, created = AttendanceRecord.objects.update_or_create(
+                existing = AttendanceRecord.objects.select_for_update().filter(
                     organization=session.organization,
                     session=session,
                     student=student,
-                    defaults={
-                        "status": status_val,
-                        "capture_method": AttendanceRecord.CaptureMethodChoices.FACE_RECOGNITION,
-                        "confidence_score": confidence,
-                        "captured_at": dt,
-                        "updated_by": request.user,
-                        "metadata": metadata
-                    }
+                    is_deleted=False,
+                ).first()
+                if existing:
+                    errors.append(f"Duplicate attendance ignored for student {roll_no} in period {hour_val}.")
+                    continue
+                record = AttendanceRecord.objects.create(
+                    organization=session.organization,
+                    session=session,
+                    student=student,
+                    status=status_val,
+                    capture_method=AttendanceRecord.CaptureMethodChoices.FACE_RECOGNITION,
+                    confidence_score=confidence,
+                    captured_at=dt,
+                    created_by=request.user,
+                    updated_by=request.user,
+                    metadata=metadata,
                 )
-                if created:
-                    record.created_by = request.user
-                    record.save(update_fields=["created_by"])
                 refresh_session_strength(session)
                 synced_count += 1
 
@@ -774,4 +816,3 @@ class ExternalBiometricDeviceSyncView(APIView):
             "synced_records": synced_count,
             "errors": errors
         }, status=status.HTTP_200_OK)
-

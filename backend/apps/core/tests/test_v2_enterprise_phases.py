@@ -53,7 +53,7 @@ class TestPhase3Hod:
             {"branch": str(branch.id), "name": "Phase3 Dept", "code": "P3"},
             format="json",
         )
-        assert response.status_code == 201
+        assert response.status_code == 403
 
 
 @pytest.mark.django_db

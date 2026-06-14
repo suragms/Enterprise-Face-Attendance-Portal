@@ -68,12 +68,27 @@ def test_student_self_checkin_success(student_user, student_instance, subject_in
 
     # Create open attendance session for today matching student's class
     today = timezone.localdate()
+    timetable_entry = Timetable.objects.create(
+        organization=organization,
+        branch=branch,
+        department=student_instance.department,
+        course=student_instance.course,
+        semester=student_instance.semester,
+        day=today.strftime("%A").upper(),
+        period=2,
+        starts_at="09:30:00",
+        ends_at="10:30:00",
+        subject=subject_instance,
+        faculty=subject_instance.assigned_faculty,
+        is_active=True,
+    )
     session = AttendanceSession.objects.create(
         organization=organization,
         branch=branch,
         department=student_instance.department,
         semester=student_instance.semester,
         subject=subject_instance,
+        timetable=timetable_entry,
         date=today,
         hour="II",
         session_status="OPEN",
@@ -208,11 +223,11 @@ def test_student_self_checkin_no_active_session(student_user, student_instance, 
 
 
 @pytest.mark.django_db
-def test_biometric_device_sync_ingestion(faculty_user, faculty_profile, student_instance, subject_instance, organization):
+def test_biometric_device_sync_ingestion(hod_user, faculty_profile, student_instance, subject_instance, organization):
     # Setup HOD or faculty account
-    faculty_user.role = "FACULTY"
-    faculty_user.active_organization = organization
-    faculty_user.save()
+    hod_user.role = "HOD"
+    hod_user.active_organization = organization
+    hod_user.save()
 
     # Configure timetable entry for Period II (9:30 AM - 10:30 AM)
     timetable_entry = Timetable.objects.create(
@@ -231,7 +246,7 @@ def test_biometric_device_sync_ingestion(faculty_user, faculty_profile, student_
     )
 
     client = APIClient()
-    client.force_authenticate(faculty_user)
+    client.force_authenticate(hod_user)
 
     # Post raw BioEnable-style device logs to sync API
     response = client.post(

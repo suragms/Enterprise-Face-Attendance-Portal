@@ -122,6 +122,8 @@ class AttendanceRecord(OrganizationScopedModel):
         indexes = [
             models.Index(fields=["organization", "status"]),
             models.Index(fields=["organization", "capture_method"]),
+            models.Index(fields=["session", "student", "captured_at"]),
+            models.Index(fields=["organization", "student", "captured_at"]),
         ]
 
     def __str__(self):

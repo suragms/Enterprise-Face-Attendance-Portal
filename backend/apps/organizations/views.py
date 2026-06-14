@@ -63,8 +63,12 @@ class OrganizationViewSet(ArchiveRestoreExportMixin, viewsets.ModelViewSet):
 class BranchViewSet(ArchiveRestoreExportMixin, TenantScopedModelViewSet):
     queryset = Branch.objects.select_related("organization")
     serializer_class = BranchSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOrganizationAdminOrAbove]
     export_filename = "branches.csv"
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve", "export"]:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsPlatformSuperAdmin()]
 
 
 class DepartmentViewSet(ArchiveRestoreExportMixin, TenantScopedModelViewSet):
@@ -75,18 +79,18 @@ class DepartmentViewSet(ArchiveRestoreExportMixin, TenantScopedModelViewSet):
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated(), IsOrganizationAdminOrAbove()]
+        return [permissions.IsAuthenticated(), IsPlatformSuperAdmin()]
 
     def get_queryset(self):
         queryset = super().get_queryset()
         user = self.request.user
         if user.is_super_admin:
             return queryset
-        from apps.staff.repositories.faculty_repository import FacultyRepository
+        from apps.core.hod_scoping import get_hod_departments
 
-        hod_department = FacultyRepository().resolve_hod_department(user)
-        if hod_department:
-            return queryset.filter(id=hod_department.id)
+        dept_ids = get_hod_departments(user)
+        if dept_ids:
+            return queryset.filter(id__in=dept_ids)
         return queryset
 
 

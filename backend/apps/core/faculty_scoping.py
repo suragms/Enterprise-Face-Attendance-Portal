@@ -97,3 +97,13 @@ def enforce_faculty_department_access(user, department):
     department_id = getattr(department, "id", department)
     if str(department_id) != str(profile.department_id):
         raise PermissionDenied("Faculty can only manage students in their assigned department.")
+
+
+def enforce_faculty_subject_access(user, subject):
+    if not is_faculty_user(user):
+        return
+    profile = resolve_faculty_profile(user)
+    if not profile:
+        raise PermissionDenied("Faculty profile is not configured.")
+    if str(getattr(subject, "assigned_faculty_id", "")) != str(profile.id):
+        raise PermissionDenied("Faculty can only access assigned subjects.")

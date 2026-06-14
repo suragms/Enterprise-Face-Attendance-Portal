@@ -29,9 +29,18 @@ class FaceEnrollment(OrganizationScopedModel):
     is_active = models.BooleanField(default=True, db_index=True)
 
     class Meta(OrganizationScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "user"],
+                condition=models.Q(is_active=True, is_deleted=False),
+                name="uniq_active_face_enrollment_per_user_org",
+            )
+        ]
         indexes = [
             models.Index(fields=["organization", "subject_type", "is_active"]),
             models.Index(fields=["organization", "user", "is_active"]),
+            models.Index(fields=["organization", "student", "is_active"]),
+            models.Index(fields=["organization", "faculty", "is_active"]),
         ]
 
     @property

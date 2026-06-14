@@ -367,5 +367,44 @@ def test_semester_auto_creation_and_self_healing(organization, branch, departmen
     assert Semester.objects.filter(course=new_course).count() == 8
 
 
+@pytest.mark.django_db
+def test_course_auto_creates_academic_year_when_none_exists(organization, department, super_admin_user):
+    from apps.organizations.models import Course, Semester, AcademicYear
+    from apps.organizations.serializers import CourseSerializer
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory, force_authenticate
+
+    # Make sure NO academic years exist for the organization
+    AcademicYear.objects.filter(organization=organization).delete()
+    assert AcademicYear.objects.filter(organization=organization).count() == 0
+
+    factory = APIRequestFactory()
+    django_request = factory.post("/api/courses/")
+    force_authenticate(django_request, user=super_admin_user)
+    req = Request(django_request)
+
+    course_data = {
+        "department": str(department.id),
+        "name": "Self Healing Org Course",
+        "code": "SHOC",
+        "duration_semesters": 8
+    }
+    serializer = CourseSerializer(data=course_data, context={"request": req})
+    assert serializer.is_valid(), serializer.errors
+    new_course = serializer.save(organization=organization)
+
+    # Academic year should have been automatically created
+    ay_qs = AcademicYear.objects.filter(organization=organization)
+    assert ay_qs.count() == 1
+    ay = ay_qs.first()
+    assert ay.is_current is True
+
+    # Semesters should have been automatically created
+    sems = Semester.objects.filter(course=new_course, academic_year=ay).order_by("number")
+    assert sems.count() == 8
+    assert list(sems.values_list("number", flat=True)) == [1, 2, 3, 4, 5, 6, 7, 8]
+
+
+
 
 

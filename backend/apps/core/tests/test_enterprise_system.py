@@ -46,9 +46,9 @@ def test_cookie_jwt_login_and_me_endpoint(admin_user):
 
 
 @pytest.mark.django_db
-def test_organization_branch_department_crud_is_tenant_scoped(admin_user, organization, branch):
+def test_organization_branch_department_crud_is_tenant_scoped(super_admin_user, organization, branch):
     client = APIClient()
-    client.force_authenticate(admin_user)
+    client.force_authenticate(super_admin_user)
 
     response = client.post("/api/departments/", {"branch": str(branch.id), "name": "AI Lab", "code": "AIL"}, format="json")
 
@@ -231,6 +231,19 @@ def test_timetable_detect_clashes_reports_faculty_overlap_overload_and_unassigne
 
 @pytest.mark.django_db
 def test_attendance_manual_engine_workflow(admin_user, organization, branch, department, semester, subject_instance, student_instance):
+    timetable = Timetable.objects.create(
+        organization=organization,
+        branch=branch,
+        department=department,
+        course=subject_instance.course,
+        semester=semester,
+        day="MONDAY",
+        period=1,
+        starts_at=datetime.time(8, 30),
+        ends_at=datetime.time(9, 30),
+        subject=subject_instance,
+        faculty=subject_instance.assigned_faculty,
+    )
     session = AttendanceSession.objects.create(
         organization=organization,
         branch=branch,
@@ -239,6 +252,7 @@ def test_attendance_manual_engine_workflow(admin_user, organization, branch, dep
         date=datetime.date(2026, 6, 1),
         hour="I",
         subject=subject_instance,
+        timetable=timetable,
         opened_by=admin_user,
     )
     client = APIClient()
@@ -271,6 +285,19 @@ def test_attendance_manual_engine_workflow(admin_user, organization, branch, dep
 def test_attendance_engine_accepts_ui_payloads_validates_and_unlocks(admin_user, subject_instance, student_instance):
     client = APIClient()
     client.force_authenticate(admin_user)
+    Timetable.objects.create(
+        organization=subject_instance.organization,
+        branch=student_instance.branch,
+        department=student_instance.department,
+        course=student_instance.course,
+        semester=student_instance.semester,
+        day="TUESDAY",
+        period=3,
+        starts_at=datetime.time(10, 30),
+        ends_at=datetime.time(11, 30),
+        subject=subject_instance,
+        faculty=subject_instance.assigned_faculty,
+    )
 
     manual = client.post(
         "/api/attendance/engine/manual/",
@@ -300,11 +327,11 @@ def test_attendance_engine_accepts_ui_payloads_validates_and_unlocks(admin_user,
         },
         format="json",
     )
-    assert automatic.status_code == 201
+    assert automatic.status_code == 400
+    assert "duplicate" in str(automatic.data).lower()
     manual_record.refresh_from_db()
-    assert manual_record.status == "PRESENT"
-    assert manual_record.capture_method == "FACE_RECOGNITION"
-    assert manual_record.confidence_score == 96.5
+    assert manual_record.status == "LATE"
+    assert manual_record.capture_method == "MANUAL"
 
     validation = client.post("/api/attendance/engine/validate/", {"session_id": str(session.id)}, format="json")
     assert validation.status_code == 200
