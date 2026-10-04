@@ -37,7 +37,7 @@ class StudyMaterialViewSet(FacultyMaterialScopedMixin, HodDepartmentScopedMixin,
         if self.request.user.is_student:
             queryset = queryset.filter(status=StudyMaterial.Status.APPROVED)
             queryset = scope_queryset_for_student(
-                queryset, self.request.user, department_field=None, course_field=None
+                queryset, self.request.user, department_field="subject__department", course_field="subject__course", semester_field="semester"
             )
         if params.get("search"):
             query = params["search"]

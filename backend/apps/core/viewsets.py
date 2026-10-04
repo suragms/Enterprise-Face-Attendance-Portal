@@ -36,7 +36,8 @@ class TenantScopedModelViewSet(viewsets.ModelViewSet):
                 raise serializers.ValidationError({
                     self.organization_field: "Active tenant organization is not set. Please select or switch to an active organization first."
                 })
-            save_kwargs.setdefault(self.organization_field, active_org)
+            if active_org is not None:
+                save_kwargs[self.organization_field] = active_org
         serializer.save(**save_kwargs)
 
     def perform_update(self, serializer):

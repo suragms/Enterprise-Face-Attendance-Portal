@@ -7,7 +7,7 @@ import { AuthLayout } from "../layouts/AuthLayout"
 import { AdminLayout } from "../layouts/AdminLayout"
 import { StaffLayout } from "../layouts/StaffLayout"
 import { StudentLayout } from "../layouts/StudentLayout"
-import { SuperAdminRoute } from "./RoleRoute"
+import { SuperAdminRoute, HodRoute } from "./RoleRoute"
 
 // Feature Components (Lazy Loaded for Performance & Bundle Chunk Splitting)
 const Login = React.lazy(() => import("../features/auth/components/Login").then(module => ({ default: module.Login })))
@@ -46,13 +46,14 @@ const CourseManagement = React.lazy(() => import("../features/lms/components/Cou
 const StudyMaterialsManagement = React.lazy(() => import("../features/lms/components/StudyMaterialsManagement").then(module => ({ default: module.StudyMaterialsManagement })))
 const ExamTimetableManagement = React.lazy(() => import("../features/lms/components/ExamTimetableManagement").then(module => ({ default: module.ExamTimetableManagement })))
 const StudentLearningHub = React.lazy(() => import("../features/lms/components/StudentLearningHub").then(module => ({ default: module.StudentLearningHub })))
-const ProtectedRoute: React.FC<{ 
-  children: React.ReactNode; 
-  allowedRoles?: UserRole[] 
-}> = ({ 
-  children, 
-  allowedRoles 
-}) => {
+
+// Canonical role sets — no legacy aliases
+const HOD_AND_ABOVE: UserRole[] = ["SUPER_ADMIN", "HOD"]
+
+const ProtectedRoute: React.FC<{
+  children: React.ReactNode
+  allowedRoles?: UserRole[]
+}> = ({ children, allowedRoles }) => {
   const { user, isAuthenticated, loading } = useAuth()
   const location = useLocation()
 
@@ -73,8 +74,7 @@ const ProtectedRoute: React.FC<{
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    // Redirect users to their appropriate dashboards
-    if (["SUPER_ADMIN", "HOD", "PLATFORM_SUPER_ADMIN", "ORGANIZATION_ADMIN", "BRANCH_ADMIN"].includes(user.role)) {
+    if (HOD_AND_ABOVE.includes(user.role as UserRole)) {
       return <Navigate to="/admin/dashboard" replace />
     } else if (user.role === "FACULTY") {
       return <Navigate to="/faculty/dashboard" replace />
@@ -94,7 +94,7 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   if (isAuthenticated && user) {
-    if (["SUPER_ADMIN", "HOD", "PLATFORM_SUPER_ADMIN", "ORGANIZATION_ADMIN", "BRANCH_ADMIN"].includes(user.role)) {
+    if (HOD_AND_ABOVE.includes(user.role as UserRole)) {
       return <Navigate to="/admin/dashboard" replace />
     } else if (user.role === "FACULTY") {
       return <Navigate to="/faculty/dashboard" replace />
@@ -115,11 +115,11 @@ const LazyLoadingFallback: React.FC = () => (
 
 export const AppRoutes: React.FC = () => {
   const { user, loading } = useAuth()
-  
+
   if (loading) {
     return <LazyLoadingFallback />
   }
-  
+
   return (
     <React.Suspense fallback={<LazyLoadingFallback />}>
       <Routes>
@@ -132,11 +132,11 @@ export const AppRoutes: React.FC = () => {
           <Route path="/account/sessions" element={<ProtectedRoute><SessionManagement /></ProtectedRoute>} />
         </Route>
 
-        {/* Super Admin & HOD Admin Protected Routes */}
-        <Route 
-          path="/admin" 
+        {/* HOD / Super Admin Protected Routes */}
+        <Route
+          path="/admin"
           element={
-            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "HOD", "PLATFORM_SUPER_ADMIN", "ORGANIZATION_ADMIN", "BRANCH_ADMIN"]}>
+            <ProtectedRoute allowedRoles={HOD_AND_ABOVE}>
               <AdminLayout />
             </ProtectedRoute>
           }
@@ -152,24 +152,27 @@ export const AppRoutes: React.FC = () => {
           <Route path="organizations" element={<SuperAdminRoute><OrganizationsManagement /></SuperAdminRoute>} />
           <Route path="branches" element={<SuperAdminRoute><BranchesManagement /></SuperAdminRoute>} />
           <Route path="semesters" element={<SuperAdminRoute><SemestersManagement /></SuperAdminRoute>} />
-          <Route path="courses" element={<CourseManagement />} />
-          <Route path="materials" element={<StudyMaterialsManagement />} />
-          <Route path="exams" element={<ExamTimetableManagement />} />
-          <Route path="subjects" element={<SubjectList />} />
-          <Route path="timetable" element={<Timetable />} />
+          <Route path="courses" element={<SuperAdminRoute><CourseManagement /></SuperAdminRoute>} />
+          <Route path="subjects" element={<HodRoute><SubjectList /></HodRoute>} />
+          {/* Timetable management is HOD/super-admin only — faculty may read via /faculty/timetable */}
+          <Route path="timetable" element={<HodRoute><Timetable /></HodRoute>} />
           <Route path="attendance" element={<AttendanceEngine />} />
           <Route path="attendance-capture" element={<CaptureAttendance />} />
           <Route path="face-recognition" element={<SuperAdminRoute><FaceRecognition /></SuperAdminRoute>} />
           <Route path="reports" element={<ReportsView />} />
           <Route path="analytics" element={<AnalyticsDashboard />} />
-          <Route path="notifications" element={<NotificationManager />} />
+          {/* Notification template management is HOD/super-admin only */}
+          <Route path="notifications" element={<HodRoute><NotificationManager /></HodRoute>} />
+          <Route path="materials" element={<StudyMaterialsManagement />} />
+          <Route path="exams" element={<ExamTimetableManagement />} />
           <Route path="device-sync" element={<DeviceSyncSimulator />} />
         </Route>
 
+        {/* Dedicated HOD timetable route (kept for backward compat) */}
         <Route
           path="/hod"
           element={
-            <ProtectedRoute allowedRoles={["HOD", "SUPER_ADMIN", "PLATFORM_SUPER_ADMIN", "ORGANIZATION_ADMIN", "BRANCH_ADMIN"]}>
+            <ProtectedRoute allowedRoles={HOD_AND_ABOVE}>
               <AdminLayout />
             </ProtectedRoute>
           }
@@ -179,8 +182,8 @@ export const AppRoutes: React.FC = () => {
         </Route>
 
         {/* Faculty Protected Routes */}
-        <Route 
-          path="/faculty" 
+        <Route
+          path="/faculty"
           element={
             <ProtectedRoute allowedRoles={["FACULTY"]}>
               <StaffLayout />
@@ -195,17 +198,19 @@ export const AppRoutes: React.FC = () => {
           <Route path="manual-attendance" element={<Navigate to="/faculty/attendance" replace />} />
           <Route path="capture" element={<CaptureAttendance />} />
           <Route path="face-recognition" element={<FaceRecognition />} />
+          {/* Faculty may read the timetable but not write (enforced on backend) */}
           <Route path="timetable" element={<Timetable />} />
           <Route path="materials" element={<StudyMaterialsManagement />} />
           <Route path="exams" element={<ExamTimetableManagement />} />
+          {/* Faculty may trigger notifications but not manage templates */}
           <Route path="notifications" element={<NotificationManager />} />
           <Route path="reports" element={<ReportsView />} />
           <Route path="analytics" element={<AnalyticsDashboard />} />
         </Route>
 
         {/* Student Protected Routes */}
-        <Route 
-          path="/student" 
+        <Route
+          path="/student"
           element={
             <ProtectedRoute allowedRoles={["STUDENT"]}>
               <StudentLayout />
@@ -224,18 +229,18 @@ export const AppRoutes: React.FC = () => {
         </Route>
 
         {/* Catch-all redirect */}
-        <Route 
-          path="*" 
+        <Route
+          path="*"
           element={
-            <Navigate 
+            <Navigate
               to={
-                user 
-                  ? (["SUPER_ADMIN", "HOD", "PLATFORM_SUPER_ADMIN", "ORGANIZATION_ADMIN", "BRANCH_ADMIN"].includes(user.role)
-                      ? "/admin/dashboard" 
+                user
+                  ? (HOD_AND_ABOVE.includes(user.role as UserRole)
+                      ? "/admin/dashboard"
                       : (user.role === "FACULTY" ? "/faculty/dashboard" : "/student/dashboard"))
                   : "/login"
-              } 
-              replace 
+              }
+              replace
             />
           }
         />

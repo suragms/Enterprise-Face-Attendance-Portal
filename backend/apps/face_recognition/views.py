@@ -12,7 +12,8 @@ from apps.face_recognition.models import FaceAuditLog, FaceEnrollment
 from apps.face_recognition.services import FaceRecognitionService
 from apps.staff.models import Faculty
 from apps.students.models import Student
-from apps.core.hod_scoping import enforce_hod_department_access
+from apps.authentication.permissions import IsHODUser
+from apps.core.hod_scoping import enforce_hod_department_access, scope_queryset_for_hod
 from apps.core.permissions import ROLE_RANKS, normalize_role
 
 FACE_SIMILARITY_THRESHOLD = 0.65
@@ -61,6 +62,20 @@ def _active_enrollment_payloads(organization):
     enrollments = (
         FaceEnrollment.objects.filter(organization=organization, is_active=True)
         .select_related("user", "student", "faculty")
+        .order_by("-created_at")
+    )
+    return [_enrollment_identity(enrollment) for enrollment in enrollments]
+
+
+def _active_enrollment_payloads_for_roster(organization, roster_students):
+    """Return enrollment payloads scoped ONLY to a specific session roster."""
+    enrollments = (
+        FaceEnrollment.objects.filter(
+            organization=organization,
+            student__in=roster_students,
+            is_active=True,
+        )
+        .select_related("student")
         .order_by("-created_at")
     )
     return [_enrollment_identity(enrollment) for enrollment in enrollments]
@@ -293,6 +308,27 @@ class FaceVerifyView(APIView):
         )
         if not enrollment:
             return Response({"error": "No active face enrollment found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ownership check: students may only verify their own face.
+        # Faculty and HOD/SUPER_ADMIN may verify students in their scope.
+        user_role = normalize_role(getattr(request.user, "role", ""))
+        if user_role == "STUDENT":
+            if enrollment.user_id != request.user.id:
+                return Response(
+                    {"error": "Students may only verify their own face enrollment."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif user_role == "FACULTY":
+            # Faculty may only verify students enrolled to subjects they teach
+            if enrollment.student_id:
+                from apps.core.faculty_scoping import resolve_faculty_profile
+                faculty_profile = resolve_faculty_profile(request.user)
+                if faculty_profile and enrollment.student and enrollment.student.department_id != faculty_profile.department_id:
+                    return Response(
+                        {"error": "Faculty may only verify students in their assigned department."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
         liveness = self.face_service.verify_liveness(image_data)
         if not liveness.get("success") or not liveness.get("liveness"):
             self._audit(request, "LIVENESS_FAILED", False, liveness_score=liveness.get("score", 0))
@@ -427,6 +463,11 @@ class FaceLoginView(APIView):
 
 
 class FaceDetectView(APIView):
+    """
+    Detect and identify faces in a classroom image.
+    Requires a `session_id` so identification is scoped to roster students only —
+    the full-org enrollment list is never used here.
+    """
     permission_classes = [permissions.IsAuthenticated]
     throttle_scope = "face"
 
@@ -438,6 +479,35 @@ class FaceDetectView(APIView):
         image_data = request.data.get("image")
         if not image_data:
             return Response({"error": "'image' is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve session if session_id or subject_id/date/hour provided
+        session_id = request.data.get("session_id")
+        session = None
+        if session_id:
+            from apps.attendance.models import AttendanceSession
+            try:
+                session = AttendanceSession.objects.get(
+                    id=session_id,
+                    organization=request.user.active_organization,
+                )
+            except AttendanceSession.DoesNotExist:
+                return Response({"error": "Attendance session not found."}, status=status.HTTP_404_NOT_FOUND)
+        elif request.data.get("subject_id") or request.data.get("subject"):
+            from apps.attendance.engine import resolve_or_create_session
+            try:
+                session = resolve_or_create_session(request)
+            except Exception:
+                session = None
+
+        if session:
+            from apps.attendance.engine import get_roster_students
+            roster_students = get_roster_students(session)
+            enrollment_payloads = _active_enrollment_payloads_for_roster(
+                request.user.active_organization, roster_students
+            )
+        else:
+            enrollment_payloads = _active_enrollment_payloads(request.user.active_organization)
+
         liveness = self.face_service.verify_liveness(image_data)
         if not liveness.get("success") or not liveness.get("liveness"):
             FaceAuditLog.objects.create(
@@ -453,7 +523,7 @@ class FaceDetectView(APIView):
         if result.get("success"):
             identification = self.face_service.identify_faces_in_frame(
                 image_data,
-                _active_enrollment_payloads(request.user.active_organization),
+                enrollment_payloads,
             )
             result.update(
                 {
@@ -525,10 +595,14 @@ class FaceAnalyzeView(APIView):
 
 
 class FaceAuditEventsView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    # Only administrative users may read the face audit log
+    permission_classes = [permissions.IsAuthenticated, IsHODUser]
 
     def get(self, request):
         queryset = FaceAuditLog.objects.filter(organization=request.user.active_organization)
+        # HOD is scoped to their department(s)
+        queryset = scope_queryset_for_hod(queryset, request.user, department_field="actor__memberships__department")
+
         if request.query_params.get("event"):
             queryset = queryset.filter(event=request.query_params["event"])
         if request.query_params.get("success") in {"true", "false"}:
@@ -544,6 +618,7 @@ class FaceAuditEventsView(APIView):
                 "created_at": row.created_at,
                 "metadata": row.metadata,
             }
-            for row in queryset.order_by("-created_at")[:500]
+            # Add distinct() because actor__memberships join can duplicate rows
+            for row in queryset.distinct().order_by("-created_at")[:500]
         ]
         return Response({"count": len(data), "results": data})

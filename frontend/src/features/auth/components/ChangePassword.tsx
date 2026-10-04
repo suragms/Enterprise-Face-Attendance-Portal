@@ -1,6 +1,6 @@
 import React, { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { KeyRound, ShieldCheck } from "lucide-react"
+import { KeyRound, ShieldCheck, LogOut } from "lucide-react"
 import { useAuth } from "../../../context/AuthContext"
 import { PasswordStrength } from "./PasswordStrength"
 
@@ -9,7 +9,7 @@ interface ChangePasswordProps {
 }
 
 export const ChangePassword: React.FC<ChangePasswordProps> = ({ forced = false }) => {
-  const { changePassword } = useAuth()
+  const { changePassword, logout, user } = useAuth()
   const navigate = useNavigate()
   const [oldPassword, setOldPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
@@ -43,13 +43,20 @@ export const ChangePassword: React.FC<ChangePasswordProps> = ({ forced = false }
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm max-w-md w-full space-y-4 mx-auto">
-      <div>
-        <h3 className="text-sm font-bold text-slate-800">Account Security</h3>
-        <p className="text-xs text-slate-400">
-          {forced
-            ? "You must set a new password before continuing."
-            : "Modify your login password credentials."}
-        </p>
+      <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+        <div>
+          <h3 className="text-sm font-bold text-slate-800">Account Security</h3>
+          <p className="text-xs text-slate-400">
+            {forced
+              ? "You must set a new password before continuing."
+              : "Modify your login password credentials."}
+          </p>
+        </div>
+        {user?.email && (
+          <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
+            {user.email}
+          </span>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -120,6 +127,18 @@ export const ChangePassword: React.FC<ChangePasswordProps> = ({ forced = false }
           className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
         >
           {submitting ? "Updating..." : "Update Security Key"}
+        </button>
+
+        <button
+          type="button"
+          onClick={async () => {
+            await logout()
+            navigate("/login", { replace: true })
+          }}
+          className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          Sign Out / Switch Account
         </button>
       </form>
     </div>

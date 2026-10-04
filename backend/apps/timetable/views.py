@@ -17,7 +17,7 @@ from apps.core.faculty_scoping import (
     resolve_faculty_profile,
     scope_queryset_for_faculty,
 )
-from apps.core.permissions import IsBranchAdminOrAbove, IsFacultyOrAbove
+from apps.core.permissions import IsBranchAdminOrAbove, IsFacultyOrAbove, IsTimetableManagerOrAssignedFaculty
 from apps.core.viewsets import TenantScopedModelViewSet
 from apps.organizations.models import Branch, Course, Department, Semester
 from apps.staff.models import Faculty
@@ -35,7 +35,7 @@ class TimetableEntryViewSet(HodDepartmentScopedMixin, TenantScopedModelViewSet):
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
-            return [permissions.IsAuthenticated(), IsFacultyOrAbove()]
+            return [permissions.IsAuthenticated(), IsTimetableManagerOrAssignedFaculty()]
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):

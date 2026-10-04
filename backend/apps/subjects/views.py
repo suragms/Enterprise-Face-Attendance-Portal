@@ -1,7 +1,7 @@
 from django.db import models
 from rest_framework import permissions
 
-from apps.core.permissions import IsBranchAdminOrAbove
+from apps.core.permissions import IsBranchAdminOrAbove, IsSubjectManagerOrAssignedFaculty
 from apps.core.mixins import ArchiveRestoreExportMixin, HodDepartmentScopedMixin
 from apps.core.viewsets import TenantScopedModelViewSet
 from apps.core.faculty_scoping import scope_subjects_for_faculty
@@ -17,7 +17,7 @@ class SubjectViewSet(ArchiveRestoreExportMixin, HodDepartmentScopedMixin, Tenant
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
-            return [permissions.IsAuthenticated(), IsBranchAdminOrAbove()]
+            return [permissions.IsAuthenticated(), IsSubjectManagerOrAssignedFaculty()]
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):

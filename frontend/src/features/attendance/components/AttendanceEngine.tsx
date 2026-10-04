@@ -393,10 +393,39 @@ export const AttendanceEngine: React.FC = () => {
       return
     }
 
+    // Ensure session exists or is resolved
+    let currentSessionId = session.id
+    if (!currentSessionId || currentSessionId === 0) {
+      try {
+        const created: any = await createAttendanceSession({
+          date: sessionDate,
+          hour: sessionHour,
+          subject_id: sessionSubject,
+        })
+        if (created?.id) {
+          currentSessionId = created.id
+          setSession(prev => ({
+            ...prev,
+            id: created.id,
+            sessionStatus: created.session_status || "OPEN"
+          }))
+          fetchSessionData()
+        }
+      } catch (err: any) {
+        console.warn("Auto session creation notice:", err?.message)
+      }
+    }
+
     try {
       const data = await apiFetch("/face-recognition/detect/", {
         method: "POST",
-        body: { image: base64Image }
+        body: {
+          image: base64Image,
+          session_id: currentSessionId && currentSessionId !== 0 ? currentSessionId : undefined,
+          subject_id: sessionSubject,
+          date: sessionDate,
+          hour: sessionHour,
+        }
       })
 
       const scanned: StudentRow[] = (data.identified || []).map((f: any) => ({
@@ -445,6 +474,7 @@ export const AttendanceEngine: React.FC = () => {
       const res = await apiFetch("/attendance/engine/automatic/", {
         method: "POST",
         body: {
+          session_id: session.id && session.id !== 0 ? session.id : undefined,
           date: sessionDate,
           hour: sessionHour,
           subject_id: sessionSubject,

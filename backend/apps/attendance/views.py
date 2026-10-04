@@ -8,10 +8,13 @@ from rest_framework.views import APIView
 
 from apps.authentication.permissions import IsFacultyOnlyUser, IsHODUser
 from apps.attendance.engine import (
+    FACE_SIMILARITY_THRESHOLD,
     create_session_from_payload,
     enforce_face_entry,
     enforce_session_actor_access,
+    enforce_session_current_time,
     enforce_session_timetable,
+    get_roster_students,
     normalize_entries,
     normalize_similarity,
     resolve_or_create_session,
@@ -305,6 +308,194 @@ class ManualAttendanceView(_BaseEngineAttendanceView):
 
 class AutomaticAttendanceView(_BaseEngineAttendanceView):
     capture_method = AttendanceRecord.CaptureMethodChoices.FACE_RECOGNITION
+
+    def post(self, request):
+        image_data = request.data.get("image")
+        if not image_data:
+            return super().post(request)
+
+        try:
+            session = resolve_or_create_session(request)
+        except IntegrityError:
+            return Response(
+                {"detail": "Concurrent session conflict. Please retry.", "code": "CONFLICT"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        if not session_is_writable(session):
+            return Response(
+                {"detail": f"Session is {session.session_status} and cannot be modified.", "code": "SESSION_CLOSED"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            enforce_session_actor_access(session, request.user)
+            enforce_session_timetable(session, request.user)
+            if getattr(request.user, "role", "") == "FACULTY":
+                enforce_session_current_time(session)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.face_recognition.models import FaceAuditLog, FaceEnrollment
+        from apps.face_recognition.services import FaceRecognitionService
+
+        face_service = FaceRecognitionService()
+        liveness = face_service.verify_liveness(image_data)
+        if not liveness.get("success") or not liveness.get("liveness"):
+            FaceAuditLog.objects.create(
+                organization=session.organization,
+                actor=request.user,
+                event=FaceAuditLog.Event.LIVENESS_FAILED,
+                success=False,
+                liveness_score=liveness.get("score", 0),
+                metadata=liveness,
+            )
+            return Response(
+                {
+                    "detail": liveness.get("message", "Liveness verification failed."),
+                    "code": "LIVENESS_FAILED",
+                    "liveness": liveness,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        roster_students = get_roster_students(session)
+        roster_enrollments = list(
+            FaceEnrollment.objects.filter(
+                organization=session.organization,
+                student__in=roster_students,
+                is_active=True,
+            ).select_related("student")
+        )
+        if not roster_enrollments:
+            return Response(
+                {
+                    "detail": "No active face enrollments found for session roster students.",
+                    "code": "NOT_ENROLLED",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        probe = face_service.encode_face(image_data)
+        if not probe.get("success"):
+            return Response(
+                {"detail": probe.get("message", "No face detected in image."), "code": "NO_FACE"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        matches = []
+        for enrollment in roster_enrollments:
+            pose_set = enrollment.pose_embeddings or {}
+            if pose_set:
+                result = face_service.verify_against_pose_set(
+                    pose_set, probe["encoding"], enrollment.confidence_threshold
+                )
+            else:
+                result = face_service.compare_faces(
+                    enrollment.embedding, probe["encoding"], enrollment.confidence_threshold
+                )
+
+            similarity = normalize_similarity(result.get("confidence"))
+            if result.get("match") and similarity is not None and similarity >= FACE_SIMILARITY_THRESHOLD:
+                matches.append((enrollment, similarity, result))
+
+        if not matches:
+            return Response(
+                {
+                    "detail": "Face does not match any enrolled student in the session roster.",
+                    "code": "FACE_MISMATCH",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        matches.sort(key=lambda x: x[1], reverse=True)
+
+        if len(matches) > 1:
+            top_score = matches[0][1]
+            second_score = matches[1][1]
+            if (top_score - second_score) < 0.05:
+                return Response(
+                    {
+                        "detail": f"Biometric identification ambiguous: top match ({matches[0][0].student.roll_no}, {top_score:.2f}) and second match ({matches[1][0].student.roll_no}, {second_score:.2f}) differ by less than 0.05 margin.",
+                        "code": "AMBIGUOUS_FACE",
+                        "top_candidates": [
+                            {"roll_no": matches[0][0].student.roll_no, "similarity": round(top_score, 4)},
+                            {"roll_no": matches[1][0].student.roll_no, "similarity": round(second_score, 4)},
+                        ],
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        best_enrollment, best_score, best_result = matches[0]
+        student = best_enrollment.student
+
+        existing = AttendanceRecord.objects.filter(
+            organization=session.organization,
+            session=session,
+            student=student,
+            is_deleted=False,
+        ).first()
+        if existing and existing.status in {
+            AttendanceRecord.StatusChoices.PRESENT,
+            AttendanceRecord.StatusChoices.LATE,
+            AttendanceRecord.StatusChoices.EXCUSED,
+        }:
+            return Response(
+                {
+                    "detail": f"Duplicate face attendance is not allowed for {student.roll_no}.",
+                    "code": "DUPLICATE",
+                    "roll_no": student.roll_no,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            entry_payload = [
+                {
+                    "student": student.id,
+                    "status": "PRESENT",
+                    "confidence_score": best_score,
+                    "similarity_score": best_score,
+                }
+            ]
+            entries = normalize_entries(request, session, entry_payload)
+            upserted = upsert_records(
+                session,
+                entries,
+                user=request.user,
+                capture_method=self.capture_method,
+            )
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        FaceAuditLog.objects.create(
+            organization=session.organization,
+            actor=request.user,
+            event=FaceAuditLog.Event.VERIFICATION,
+            success=True,
+            confidence=best_score,
+            liveness_score=liveness.get("score", 0),
+            metadata={"student_id": str(student.id), "roll_no": student.roll_no},
+        )
+
+        return Response(
+            {
+                "message": "Biometric face verification successful. Attendance marked.",
+                "code": "VERIFIED",
+                "session_id": str(session.id),
+                "student_id": str(student.id),
+                "roll_no": student.roll_no,
+                "confidence_score": round(best_score, 4),
+                "total_faces_detected": 1,
+                "identified": 1,
+                "upserted": upserted,
+                "skipped": [],
+                "errors": [],
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SystemAttendanceView(_BaseEngineAttendanceView):

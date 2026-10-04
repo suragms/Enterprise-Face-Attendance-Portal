@@ -170,7 +170,8 @@ class TriggerNotificationAPIView(APIView):
                 email=payload["recipient"]
             ).first()
         if target_user:
-            if is_faculty_user(request.user):
+            role = getattr(request.user, "role", "")
+            if is_faculty_user(request.user) and role == "FACULTY":
                 profile = resolve_faculty_profile(request.user)
                 if not profile:
                     return Response({"detail": "Faculty profile is not configured."}, status=status.HTTP_403_FORBIDDEN)
@@ -182,6 +183,19 @@ class TriggerNotificationAPIView(APIView):
                 if not allowed and target_user != request.user:
                     return Response(
                         {"detail": "Faculty can notify only users in their assigned department."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            elif role == "HOD":
+                from apps.core.hod_scoping import get_hod_departments
+                hod_depts = get_hod_departments(request.user)
+                allowed = target_user.memberships.filter(
+                    organization=request.user.active_organization,
+                    department_id__in=hod_depts,
+                    is_active=True,
+                ).exists()
+                if not allowed and target_user != request.user:
+                    return Response(
+                        {"detail": "HOD can notify only users in their assigned department scope."},
                         status=status.HTTP_403_FORBIDDEN,
                     )
             context["user"] = target_user

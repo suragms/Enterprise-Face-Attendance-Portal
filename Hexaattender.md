@@ -100,7 +100,6 @@ HexaAttender implements a strict four-tier role hierarchy. Each role has an isol
 ┌──────────────────────────────────────────────────────┐
 │                   SUPER ADMIN                        │
 │  Full system control — all departments, all data     │
-│  Password: AthulTs@123!                              │
 ├──────────────────────────────────────────────────────┤
 │                   HOD ADMIN                          │
 │  Department-level control — registers faculty,       │
@@ -1076,7 +1075,6 @@ Key variables include:
 | Field | Value |
 |-------|-------|
 | **Username** | `super_admin_surag` |
-| **Password** | `AthulTs@123!` |
 | **Role** | `SUPER_ADMIN` |
 | **Portal URL** | `/admin` |
 | **Full Name** | Surag M S (HexaStack) |
