@@ -47,11 +47,11 @@ def session_is_writable(session: AttendanceSession) -> bool:
 
 def get_roster_students(session: AttendanceSession):
     """Active students in the session cohort (department + course + semester)."""
-    course = session.subject.course_id
+    course = session.subject.course
     return Student.objects.filter(
         organization=session.organization,
         department=session.department,
-        course_id=course,
+        course=course,
         semester=session.semester,
         is_active=True,
         is_deleted=False,
@@ -90,8 +90,8 @@ def enforce_session_actor_access(session: AttendanceSession, user):
 
 
 def resolve_timetable_for_session(session: AttendanceSession):
-    day = session.date.strftime("%A").upper()
-    period = HOUR_TO_PERIOD.get(session.hour)
+    day = str(session.date.strftime("%A")).upper()
+    period = HOUR_TO_PERIOD.get(str(session.hour))
     if not period:
         return None
     return (

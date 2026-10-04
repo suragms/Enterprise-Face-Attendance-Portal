@@ -430,9 +430,9 @@ class InitiateLoginView(APIView):
                 pose_set = enrollment.pose_embeddings or {}
                 if pose_set:
                     match = self.face_service.verify_against_pose_set(pose_set, probe["encoding"], enrollment.confidence_threshold)
-                else:
-                    match = self.face_service.compare_faces(enrollment.embedding, probe["encoding"], enrollment.confidence_threshold)
-                if match["match"] and (best is None or match["confidence"] > best[1]["confidence"]):
+                confidence = float(match.get("confidence", 0) or 0)
+                best_confidence = float(best[1].get("confidence", 0) or 0) if best else -1.0
+                if match.get("match") and (best is None or confidence > best_confidence):
                     best = (enrollment, match)
             if not best:
                 return Response({"detail": "Face login failed."}, status=status.HTTP_401_UNAUTHORIZED)
@@ -1039,6 +1039,8 @@ class StudentDashboardSummaryView(APIView):
                 is_active=True,
             ).exists()
 
+        overall_pct = float(attendance.get("overall_percentage", 0) or 0)
+        at_risk_list = list(attendance.get("at_risk_subjects", []))
         return Response(
             {
                 "roll_no": profile.roll_no if profile else None,
@@ -1047,8 +1049,8 @@ class StudentDashboardSummaryView(APIView):
                 "semester": profile.semester.number if profile else None,
                 "overall_attendance": attendance["overall_percentage"],
                 "promotion_status": attendance["promotion_status"],
-                "is_defaulter": attendance["overall_percentage"] < ATTENDANCE_THRESHOLD,
-                "at_risk_subject_count": len(attendance["at_risk_subjects"]),
+                "is_defaulter": overall_pct < ATTENDANCE_THRESHOLD,
+                "at_risk_subject_count": len(at_risk_list),
                 "attendance_threshold": ATTENDANCE_THRESHOLD,
                 "today_status": today_status,
                 "unread_notifications": unread_notifications,
@@ -1067,6 +1069,7 @@ class StudentPortalContextView(APIView):
         profile = resolve_student_profile(request.user)
         attendance = _student_attendance_breakdown(request.user)
 
+        overall_pct = float(attendance.get("overall_percentage", 0) or 0)
         return Response(
             {
                 "roll_no": profile.roll_no if profile else None,
@@ -1086,7 +1089,7 @@ class StudentPortalContextView(APIView):
                 "campus_status": profile.campus_status if profile else None,
                 "overall_attendance": attendance["overall_percentage"],
                 "promotion_status": attendance["promotion_status"],
-                "is_defaulter": attendance["overall_percentage"] < ATTENDANCE_THRESHOLD,
+                "is_defaulter": overall_pct < ATTENDANCE_THRESHOLD,
                 "attendance_threshold": ATTENDANCE_THRESHOLD,
                 "capabilities": {
                     "view_dashboard": bool(profile),

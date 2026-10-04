@@ -21,7 +21,7 @@ class Organization(AuditableModel):
         ]
 
     def __str__(self):
-        return self.name
+        return str(self.name)
 
 
 class Branch(OrganizationScopedModel):
@@ -81,7 +81,7 @@ class Department(OrganizationScopedModel):
         return f"{self.branch.code} / {self.name}"
 
     def save(self, *args, **kwargs):
-        self.is_active = self.status == self.Status.ACTIVE
+        self.is_active = bool(self.status == self.Status.ACTIVE)
         super().save(*args, **kwargs)
 
 
@@ -101,14 +101,16 @@ class AcademicYear(OrganizationScopedModel):
         ]
 
     def __str__(self):
-        return self.name
+        return str(self.name)
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
     def ensure_semesters(self):
         import datetime
-        from apps.organizations.models import Course, Semester
+        from django.apps import apps
+        Course = apps.get_model("organizations", "Course")
+        Semester = apps.get_model("organizations", "Semester")
         courses = Course.objects.filter(
             organization=self.organization,
             is_deleted=False
@@ -157,14 +159,16 @@ class Course(OrganizationScopedModel):
         ]
 
     def __str__(self):
-        return self.name
+        return str(self.name)
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
     def ensure_semesters(self):
         import datetime
-        from apps.organizations.models import AcademicYear, Semester
+        from django.apps import apps
+        AcademicYear = apps.get_model("organizations", "AcademicYear")
+        Semester = apps.get_model("organizations", "Semester")
         academic_years = AcademicYear.objects.filter(
             organization=self.organization,
             is_deleted=False
@@ -284,7 +288,7 @@ class OrganizationMembership(AuditableModel):
         return f"{self.user_id} / {self.organization_id} / {self.role}"
 
     def save(self, *args, **kwargs):
-        self.role = self.LEGACY_ROLE_MAP.get(self.role, self.role)
+        self.role = self.LEGACY_ROLE_MAP.get(str(self.role), self.role)
         super().save(*args, **kwargs)
 
 
@@ -295,7 +299,7 @@ class SystemSettings(AuditableModel):
     is_public = models.BooleanField(default=False)
 
     def __str__(self):
-        return self.key
+        return str(self.key)
 
 
 class AuditLog(AuditableModel):

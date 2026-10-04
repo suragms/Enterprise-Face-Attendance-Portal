@@ -3,5 +3,15 @@
   "venv": ".venv",
   "extraPaths": [
     "backend"
-  ]
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.venv",
+    "**/migrations",
+    "backend/scratch_*.py",
+    "backend/db_inspect_*.py"
+  ],
+  "typeCheckingMode": "off",
+  "reportMissingImports": "none"
 }

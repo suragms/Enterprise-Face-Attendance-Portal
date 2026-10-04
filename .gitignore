@@ -41,3 +41,7 @@ htmlcov/
 # Media Uploads
 backend/media/
 media/
+
+# Scratch and inspection scripts
+**/scratch_*.*
+**/db_inspect_*.*

@@ -66,7 +66,7 @@ class FacultyService:
         last_name = payload.get("last_name") or (full_name.split(" ", 1)[1] if full_name and " " in full_name else "")
 
         department = self._resolve_department(actor, payload.get("department"))
-        branch = actor.active_branch or department.branch
+        branch = actor.active_branch or (department.branch if department else None)
 
         user = User.objects.create_user(
             username=username,
@@ -147,6 +147,12 @@ class FacultyService:
                     return requested_dept
 
             hod_department = self.repository.resolve_hod_department(actor)
+            if not hod_department:
+                raise FacultyServiceError(
+                    "Unable to resolve department for HOD account.",
+                    field="department",
+                    status_code=400,
+                )
             return hod_department
 
         from apps.organizations.models import Department
