@@ -783,7 +783,7 @@ I am available for freelance projects, custom software development, architectura
 * **🌐 Portfolio**: [surag-portfolio.web.app](https://surag-portfolio.web.app)
 * **🌳 Linktree**: [linktr.ee/suragdevstudio](https://linktr.ee/suragdevstudio)
 * **📧 Email**: officialsurag@gmail.com
-* **📱 Phone**: [+91 7012714150](tel:+917012714150)
+* **📱 Phone**: [+91 9400974150](tel:+919400974150)
 * **💼 LinkedIn**: [linkedin.com/in/suragsunil](https://linkedin.com/in/suragsunil)
 * **📸 Instagram**: [instagram.com/surag_sunil](https://instagram.com/surag_sunil)
 * **💻 GitHub**: [github.com/suragms](https://github.com/suragms)
